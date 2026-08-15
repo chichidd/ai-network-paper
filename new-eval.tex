@@ -33,7 +33,7 @@ CIC-DDoS2019 (DDoS)~\cite{cicddos19}, CICMalDroid2020
 (DoH)~\cite{DoH}. Each task contains 66 clients and therefore 66 candidate
 detectors. Table~\ref{tab:eval-datasets} summarizes the evaluation scale.
 
-\begin{table*}[!t]
+\begin{table*}[t]
     \centering
     \caption{Datasets and evaluation scale.}
     \label{tab:eval-datasets}
@@ -102,7 +102,7 @@ score hides a loss in overall correctness or in the weakest class, while
 Fig.~\ref{fig:eval-budget-utility} shows how Macro-F1 changes across the full
 budget range.
 
-\begin{table*}[!t]
+\begin{table*}[t]
     \centering
     \caption{Macro-F1 at the 50\% communication budget (mean $\pm$ 95\%
     confidence interval over five repeated splits).}
@@ -121,7 +121,7 @@ budget range.
     \end{tabular}
 \end{table*}
 
-\begin{table*}[!t]
+\begin{table*}[t]
     \centering
     \caption{Effect of selecting roughly half of the detectors. Score changes
     are \Fname minus the full pool using five-split means; negative values
@@ -142,7 +142,7 @@ budget range.
     \end{tabular}
 \end{table*}
 
-\begin{figure*}[!t]
+\begin{figure*}[t]
     \centering
     \includegraphics[width=0.98\textwidth]{figures/eval_budget_utility.pdf}
     \caption{Detection quality as communication changes. Lines follow three
@@ -187,15 +187,15 @@ $\alpha\in\{10,1,0.5,0.1\}$, alongside an IID setting. Every constructed
 partition must still provide at least two local-training classes per client,
 so the client detectors remain genuine multiclass models.
 
-\begin{figure*}[!t]
+\begin{figure*}[t]
     \centering
     \includegraphics[width=0.98\textwidth]{figures/eval_heterogeneity.pdf}
     \caption{Detection under controlled client-label heterogeneity.
     (a) counts usable splits among ten attempts at each level; (b) measures
     the resulting client-label imbalance, where larger JSD means more uneven
-    label mixtures; and (c--d) report Macro-F1 at three communication
-    budgets. Confidence intervals in (c--d) use the usable splits ($n=10$,
-    or $n=5$ for MalDroid at $\alpha=1$).}
+    label mixtures; and (c--d) report Macro-F1 at the 50\% communication
+    budget. Confidence intervals use the usable splits ($n=10$, or $n=5$
+    for MalDroid at $\alpha=1$).}
     \label{fig:eval-heterogeneity}
 \end{figure*}
 
@@ -230,10 +230,11 @@ quality, and communication.
 \subsection{RQ3: Which Design Choices Influence Detection?}
 
 Once maximum class support is fixed, secondary signals decide among the
-remaining feasible model sets. Figure~\ref{fig:eval-component-ablation}
-removes individual detector quality, class-aware quality, and prediction
-diversity one at a time. Showing the absolute Macro-F1 keeps the comparison
-on the same detection scale as the main result.
+remaining feasible model sets. We remove individual detector quality,
+class-aware quality, and prediction diversity one at a time and measure the
+paired change from the full design. Every variant still attains the maximum
+class support, so the comparison isolates how these signals order otherwise
+feasible detector sets.
 
 At the 50\% budget, the paired Macro-F1 changes range from $-0.0190$ when
 individual quality is removed on DDoS to $+0.0181$ when prediction diversity
@@ -242,15 +243,6 @@ budgets, and no removal remains significant after Holm correction. The
 secondary signals therefore act jointly; none supplies a consistent
 stand-alone improvement across the evaluated tasks.
 
-\begin{figure}[!t]
-    \centering
-    \includegraphics[width=0.98\columnwidth]{figures/eval_component_ablation.pdf}
-    \caption{Macro-F1 for the full design and one-at-a-time removals of
-    detector quality, class-aware quality, and prediction diversity. Error
-    bars show 95\% confidence intervals over five splits.}
-    \label{fig:eval-component-ablation}
-\end{figure}
-
 We also vary $n_{\min}\in\{1,2,5,10\}$ and compare inverse-square-root
 with uniform class weights on two fixed Darknet layouts and two learner
 combinations. The selected set, class coverage, Macro-F1, and minimum class
@@ -258,7 +250,7 @@ recall remain unchanged throughout this fixed grid. In contrast, changing
 the local and global learning backends produces visible score differences,
 as Table~\ref{tab:eval-architecture} shows.
 
-\begin{table}[!t]
+\begin{table}[t]
     \centering
     \caption{Macro-F1 across local $\rightarrow$ shared learners
     (five-split means). XGB and LGBM denote XGBoost and LightGBM; bold marks
@@ -297,7 +289,7 @@ the same release rule analyzed by
 Theorem~\ref{thm:local_score_privacy}; evaluation uses a common test encoding
 so that the curve isolates the effect on aggregator learning.
 
-\begin{figure}[!t]
+\begin{figure}[t]
     \centering
     \includegraphics[width=0.98\columnwidth]{figures/eval_privacy_utility.pdf}
     \caption{Privacy--utility trade-off under Laplace score randomization.
@@ -334,18 +326,19 @@ Exact selection is useful only if it remains fast as deployments add models
 or attack classes. We first compare \Fname with exhaustive search at
 $C=8$ and $M\in\{8,10,12,16\}$. All ten repeats at each size match the
 exhaustive optimum, for 40 of 40 agreements; median time ranges from 37.70 to
-118.72 ms and every 95th percentile remains below 125 ms. This direct comparison verifies exactness independently of the larger
-scaling experiment. We then vary candidates and classes in Fig.~\ref{fig:eval-solver-scaling}.
+118.72 ms and every 95th percentile remains below 125 ms. This direct
+comparison verifies exactness independently of the larger scaling experiment.
+We then vary candidates and classes in Fig.~\ref{fig:eval-solver-scaling}.
 
-\begin{figure}[!t]
+\begin{figure*}[t]
     \centering
-    \includegraphics[width=0.98\columnwidth]{figures/eval_solver_scaling.pdf}
+    \includegraphics[width=0.96\textwidth]{figures/eval_solver_scaling.pdf}
     \caption{Time required to select models as the deployment grows. The
     panels independently vary candidate models and attack classes on a
     logarithmic time scale. Points are medians over ten repeats; upper bars
     mark the 95th percentile.}
     \label{fig:eval-solver-scaling}
-\end{figure}
+\end{figure*}
 
 With 12 attack classes, selecting from 66 candidate models takes a median of
 1.99 seconds; increasing the pool to 256 models raises this to 33.73 seconds.
@@ -358,11 +351,11 @@ full experiment. The total replay time includes every compared selection rule
 and budget within a data split, whereas communication compares \Fname at the
 50\% budget with all 66 models.
 
-\begin{table}[H]
+\begin{table}[t]
     \centering
-    \caption{Single-machine replay time and logical communication. Times are
-    five-split means in minutes; parenthesized values give the time of the
-    largest stage.}
+    \caption{Single-machine replay time and logical communication at the
+    50\% budget. Times are five-split means in minutes; parenthesized values
+    give the largest time cost.}
     \label{tab:eval-system-cost}
     \small
     \setlength{\tabcolsep}{3.0pt}
@@ -370,15 +363,15 @@ and budget within a data split, whereas communication compares \Fname at the
         \toprule
         \multicolumn{3}{c}{Replay time} \\
         \midrule
-        Dataset & Total & Dominant stage \\
-        DDoS     & 50.09 & Selection comparisons (17.11) \\
-        MalDroid & 0.78  & Shared-model training (0.59) \\
-        Darknet  & 42.51 & Shared-model training (37.88) \\
-        DoH      & 8.54  & Shared-model training (2.83) \\
+        Dataset & Total & Largest time cost \\
+        DDoS     & 50.09 & Selection (17.11) \\
+        MalDroid & 0.78  & Shared training (0.59) \\
+        Darknet  & 42.51 & Shared training (37.88) \\
+        DoH      & 8.54  & Shared training (2.83) \\
         \midrule
         \multicolumn{3}{c}{Logical communication (MiB)} \\
         \midrule
-        Dataset & All detectors & Selected detectors (saved) \\
+        Dataset & All models & Selected models (saved) \\
         DDoS     & 7,040.05 & 3,489.07 (50.4\%) \\
         MalDroid & 662.66   & 335.94 (49.3\%) \\
         Darknet  & 3,436.78 & 1,732.29 (49.6\%) \\
@@ -387,17 +380,6 @@ and budget within a data split, whereas communication compares \Fname at the
     \end{tabular}
 \end{table}
 
-\begin{figure*}[!t]
-    \centering
-    \includegraphics[width=0.98\textwidth]{figures/eval_communication_breakdown.pdf}
-    \caption{Where logical communication is spent. Each full-pool bar is
-    normalized to 100\%; the selected bar uses the same scale, so its length
-    shows the communication retained. Percentages inside colored segments
-    measure that component against the full-pool total; labels at the right
-    give total retained communication.}
-    \label{fig:eval-communication-breakdown}
-\end{figure*}
-
 Shared-model training accounts for 74.9\% of MalDroid time and 89.1\% of
 Darknet time. DoH divides time almost evenly between shared-model training
 (33.2\%) and selection comparisons (32.4\%), while DDoS spreads most of its
@@ -405,13 +387,13 @@ cost across selection (34.2\%), shared training (31.7\%), and test evaluation
 (28.2\%). The system bottleneck therefore depends on the data scale and model
 backend rather than on selection alone.
 
-Figure~\ref{fig:eval-communication-breakdown} explains why selecting half of
-the models consistently saves 49.3--50.4\% of total logical communication.
-DDoS is score-upload dominated: probability blocks form 93.6\% of its
-full-pool bytes. Model delivery instead forms 97.4\% on MalDroid, 93.4\% on
-Darknet, and 73.0\% on DoH. The selector reduces the model-dependent term
-that dominates each task. Together, the timing and communication results
-show that deployment-sized selection finishes in seconds at the main
-66-model scale and approximately halves protocol traffic.
+The communication columns explain why selecting half of the models saves
+49.3--50.4\% of total logical traffic. DDoS is score-upload dominated:
+probability blocks form 93.6\% of its full-pool bytes. Model delivery instead
+forms 97.4\% on MalDroid, 93.4\% on Darknet, and 73.0\% on DoH. The selector
+therefore reduces the model-dependent transfer that dominates each task.
+Together, the timing and communication results show that deployment-sized
+selection finishes in seconds at the main 66-model scale and approximately
+halves protocol traffic.
 
 \endgroup
