@@ -1,324 +1,762 @@
-\section{\red{Problem Statement}}
+\begingroup
+\color{red}
+
+\section{Problem Statement}
 \label{sec:problem}
 
-\subsection{\red{System Setting}}
+In this section, we formalize post-training detector integration, define the
+ordered selection objective, and state the assumptions that delimit our
+guarantees.
 
-\red{We formalize post-training federation. We distinguish package owners from deployment sites, although one organization may have both roles. Before collaboration, each owner freezes a detector and registers it. A trusted registry distributes the same versioned package pool to every site. The registry checks that each package matches the registered version, but it does not certify its behavior. During collaboration, the sites run the packages locally, while a separate coordinator trains a shared composer from secure aggregates.}
+\subsection{System Model}
 
-\red{More formally, we consider $J\ge2$ deployment sites that reuse $m$ intrusion detectors. Every package follows the same input and class-score interface over $C$ classes. For detector $i$, we write its frozen package and valid score output as}
+After local detector fitting has ended, $J$ clients expose a pool of $M$
+candidate detectors. Although the current implementation assigns one candidate
+to each client, neither $J$ nor $M$ is a method constant. For candidate
+$i$, let $p_i(x)\in\mathbb R^{h_i}$ denote its native probability output.
+Because different candidates may use different native label coordinates, the
+method validates a hard semantic map
 \begin{equation}
-\red{\mathcal M_i=(T_i,f_i), \qquad q_i(x)=f_i(T_i(x))\in\Delta^{C-1},}
-\label{eq:frozen_package}
+A_i\in\{0,1\}^{(C+1)\times h_i},
+\qquad
+\mathbf 1^\top A_i=\mathbf 1^\top,
 \end{equation}
-\red{where $T_i$ and $f_i$ form the fixed inference pipeline, and $q_i$ is its normalized class-score output. We keep $T_i$ and $f_i$ fixed.}
-
-\red{To identify the package deployed at each site, we use the map $\iota:\{1,\ldots,J\}\rightarrow\{1,\ldots,m\}$. At site $D_j$, the deployed package produces}
+and forms
 \begin{equation}
-\red{b_j(x)=q_{\iota(j)}(x)}
-\label{eq:incumbent}
+q_i(x)=A_i p_i(x)\in\Delta^{C},
+\label{eq:aligned_output}
 \end{equation}
-\red{and we call $b_j$ the raw incumbent output. A site may deploy a package from another organization, so we do not require $m=J$. The audit later compares its candidate with a fixed transformation of $b_j$. We call this comparator the audited incumbent and define it in Section~\ref{sec:approach}.}
+where $\Delta^C$ is the probability simplex with $C+1$ coordinates. The
+first $C$ coordinates follow a frozen target ontology, whereas the last
+coordinate, denoted by $\bot$, collects unsupported outputs. Thus, any mass
+assigned to $\bot$ remains visible to every later Brier calculation.
 
-\red{We call the labeled local observations obtained from the package pool \emph{current site data}. For fitting and audit, each site divides these data into a nonempty fit set $B_j^{fit}$ and a held-out audit set $B_j^{safe}$. We use $B_j^{fit}$ for shared training and local personalization, and we also use it to fix every audit choice. We reserve $B_j^{safe}$ for the final adoption audit. We do not assume that the current site distribution matches the unknown training distribution of any package.}
+Before selection begins, the method freezes every candidate, semantic map,
+and source-side class count. It also assigns disjoint record partitions to
+candidate fitting, selection calibration, stacker fitting, and sealed testing.
+Because test labels remain unopened until both the selected set and stacker
+have been frozen, they cannot affect calibration, cost, or selection.
 
-\red{During shared training, each site keeps its per-example current site data local and submits its composer gradient through secure aggregation. Local personalization and the adoption audit send no message to the coordinator.}
+The deployment budget uses a logical cost for each selected candidate. Let
+$K_i$ be candidate $i$'s serialized size, let $B_t$ be the number of
+stacker-fit records, and let $d$ be the logical byte width of one probability
+element. We charge for delivering the candidate to $J$ clients and supplying
+one aligned block for every stacker-fit record:
+\begin{equation}
+b_i=J K_i+dB_t(C+1).
+\label{eq:candidate_cost}
+\end{equation}
+Given a budget fraction $\beta$, the registered profile sets
+\begin{equation}
+B=\left\lfloor\beta\sum_{i=1}^{M}b_i\right\rfloor.
+\label{eq:logical_budget}
+\end{equation}
+The denominator contains every candidate, including those that may later fail
+calibration. This logical payload proxy does not measure packet-level traffic
+in an implemented network.
 
-\subsection{\red{Problem Formulation}}
+\subsection{Detector Selection Objective}
 
-\red{Given the frozen package pool and current site data, each site needs both a candidate and an authorization decision. Candidate construction uses only the fit sets and seeks to reduce site-level fit loss by sharing correction structure when it is useful. Authorization is a separate constraint: site $j$ preselects a nonempty set of audit metrics $\mathcal E_j$ and a tolerance $\eta_{j,e}$ for every $e\in\mathcal E_j$, then deploys the frozen candidate only when a valid local audit places an upper bound on its excess risk over the audited incumbent within every tolerance. Thus, construction searches for utility without access to the audit set, while authorization determines whether that candidate may replace the incumbent.}
+With the aligned detector pool and logical budget defined, we next specify
+what the selector should optimize.
 
-\subsection{\red{Threat Model}}
-\label{sec:threat_model}
+If the coordinator ranks candidates only by average current utility, it may
+omit the sole contributor that supports an important class. Source-side
+support alone has the opposite weakness: it can retain candidates whose
+current probabilities are weak or redundant. A scalar tradeoff can exchange a
+positive coverage loss for enough secondary gain, so the method gives weighted
+source-side coverage strict priority and compares current behavior only after
+that primary value has been fixed.
 
-\red{We consider an honest-but-curious coordinator as the privacy adversary. It follows the prescribed protocol but may analyze its training view across rounds. In each completed round, this view includes the decoded aggregate gradient and the resulting shared composer. The coordinator receives no message from local personalization or the adoption audit.}
+Accordingly, the intended target is
+\begin{equation}
+\operatorname{lexmax}_{\varnothing\ne S\subseteq\widehat{\mathcal R}}
+\left(C_{\mathrm{sem}}(S),\Phi(S)\right)
+\quad\text{s.t.}\quad
+\sum_{i\in S}b_i\le B.
+\label{eq:lexicographic_target}
+\end{equation}
+Importantly, Eq.~\ref{eq:lexicographic_target} specifies the decision order.
+The production solver computes its primary coordinate exactly and refines the
+secondary coordinate heuristically. Only the optional small-pool exhaustive
+solver computes the complete lexicographic optimum.
 
-\red{We assume that the deployment sites follow the protocol and that none colludes with the coordinator. We also assume the standard authenticated communication required by secure aggregation. We trust the registry only to distribute the same registered pool to every site. Each site verifies this pool and runs its packages unchanged. We make no accuracy assumption about a package, but we model it as a fixed inference function. Executable code that violates this model is outside our scope.}
+\subsection{Assumptions and Information Boundary}
+\label{sec:information_boundary}
 
-\red{For adoption, we assume that the held-out labels are correct for the audited task and fixed independently of the candidate. A systematic labeling error changes the risk controlled by our result.}
+After fixing the objective, we state the implementation and privacy boundaries
+under which we analyze it.
 
-\red{Under these assumptions, per-example current site data remain local, and the coordinator does not receive any site's encoded composer gradient in plaintext. However, the shared composer may still leak information, and we provide no differential privacy. We do not protect against inference by another site or against active protocol deviations. Finally, because deployment sites execute the packages locally, we do not hide the packages from them.}
+Although we describe the workflow through clients and a coordinator, the
+current implementation realizes one centralized experimental pipeline.
+Therefore, arrows in Figure~\ref{fig:workflow} denote logical dependencies,
+not implemented network messages. When local score protection is enabled,
+the protocol asks a client to perturb each selected probability block before
+logical upload. The implementation reproduces the same Laplace distribution
+centrally in an optional sensitivity mode, whereas the privacy statement below
+assumes fresh client-side randomness that is not revealed to the coordinator.
 
+Even with this option, calibration records and labels remain ordinary inputs.
+Accordingly, the guarantee concerns only the selected score blocks used to
+fit the stacker. It does not protect labels, candidate-fit records,
+calibration records, detector parameters, participation, or the complete
+protocol.
 
-\section{\red{Design of \Fname}}
+The analysis also assumes that every candidate remains unchanged, every
+semantic map passes structural validation, and every source-support count is
+reported honestly. Malicious models, poisoned candidates, false class claims,
+and active protocol deviations are therefore outside the present analysis.
+The method also adds no protection to historical information already
+represented by a pretrained detector.
+
+\section{Design of \Fname}
 \label{sec:approach}
 
-\begin{figure*}[htbp]
+In this section, we describe how \Fname calibrates the frozen candidate pool,
+selects a budget-feasible detector set, and trains one shared stacker.
+
+\begin{figure*}[t]
     \centering
-    \includegraphics[width=\linewidth]{figures/post-training-federation-overview-v4.png}
-    \caption{\red{Overview of \Fname through deployment authorization. Each site learns a personalized composer and audits it before deployment. The coordinator receives aggregated composer gradients, while each site keeps per-example scores and its personalized composer local. Section~\ref{sec:approach} describes the separate runtime response after authorization.}}
+    \includegraphics[width=\linewidth]{figures/post-training-federation-overview-v28-gpt-image.png}
+    \caption{\Fname first freezes and aligns the candidate detector pool. It
+    then uses selection-calibration records to form the eligible pool, obtains
+    the exact maximum weighted semantic coverage under the logical budget, and
+    performs coverage-preserving local secondary refinement. Finally, selected
+    aligned probability blocks train one shared stacker and support inference.
+    Arrows show logical dependencies rather than implemented network messages.}
     \label{fig:workflow}
 \end{figure*}
 
-\subsection{\red{Overview}}
+\subsection{Selection and Stacking Workflow}
 
-\red{Even without its historical training material, an auxiliary detector may help correct incumbent errors on current site data. We therefore compose only final scores and learn corrections relative to the incumbent. This design gives the sites a common correction space and retains an exact no-change state. When correction structure is shared, federated training can pool signals across sites and provide a common prior. However, package utility may differ by site, so the shared composer remains a starting point for local personalization. The resulting predictor remains a candidate until a held-out audit authorizes its deployment. Candidate construction and deployment authorization are therefore separate by design: collaboration can change the candidate, but only the local audit can change deployment.}
+Figure~\ref{fig:workflow} separates the records used for detector selection
+from those used for stacker fitting. Calibration outputs determine eligibility
+and the selected set, whereas stacker-fit features and score blocks do not
+enter selection. Clients use them only after that set has been frozen and then
+upload only the selected aligned blocks, optionally perturbed, and their
+labels; no contributed detector is updated.
 
-\red{As shown in Figure~\ref{fig:workflow}, the workflow begins with package registration. Before fitting, every site verifies the complete pool manifest. If any site finds a mismatch, the collaboration stops and the sites keep their existing deployments. Each site then builds incumbent-anchored inputs from $B_j^{fit}$ and trains the shared composer from securely aggregated, encoded gradients. After the coordinator returns $W_G$, each site personalizes the composer and freezes its candidate. Only then does the site open $B_j^{safe}$ and decide whether to adopt the candidate.}
+With these stages in place, Algorithm~\ref{alg:silostitch} summarizes the
+complete client--server procedure, while the following subsections define
+\textsc{Calibrate}, \textsc{Cover}, and \textsc{Refine} in detail. Here,
+$\epsilon_b$ is the privacy parameter assigned to one selected detector block;
+$\epsilon_b=\infty$ disables perturbation, so $\operatorname{Lap}(0,0)$ denotes
+zero noise.
 
-\subsection{\red{Incumbent-Anchored Composer}}
+\begin{algorithm}[t]
+\caption{\Fname Client--Server Procedure}
+\label{alg:silostitch}
+\small
+\begin{algorithmic}[1]
+\Require $\{f_i,A_i,H_i,K_i\}_{i=1}^{M}$, $\mathcal D^{\rm cal}$,
+$\{\mathcal D_j^{\rm stk}\}_{j=1}^{J}$, $B$, $\epsilon_b\in(0,\infty]$
+\Ensure $\widehat S$, $\widehat f$
+\State Clients $\to$ Server: $\{f_i,A_i,H_i,K_i\}_{i=1}^{M}$
+\State $(\widehat{\mathcal R},\Gamma,w,b,\Phi)\gets
+\Call{Calibrate}{\mathcal D^{\rm cal}}$
+\State $(W^\star,S_0)\gets\Call{Cover}{\widehat{\mathcal R},\Gamma,w,b,B}$
+\State $\widehat S\gets\Call{Refine}{S_0,W^\star,\Phi,B}$
+\State Server $\to$ Clients: $\{f_i,A_i\}_{i\in\widehat S}$
+\For{$j=1,\ldots,J$ \textbf{in parallel}}
+    \State $Z_j\gets\operatorname{concat}_{i\in\widehat S}q_i(X_j^{\rm stk})$
+    \State $(\Xi_j)_{t,i,k}\overset{\mathrm{iid}}{\sim}
+    \operatorname{Lap}(0,2/\epsilon_b)$
+    \State $\widetilde Z_j\gets Z_j+\Xi_j$
+    \State Client $j\to$ Server: $(\widetilde Z_j,Y_j^{\rm stk})$
+\EndFor
+\State $\widehat f\gets\Call{Fit}{\bigcup_j(\widetilde Z_j,Y_j^{\rm stk})}$
+\State \Return $(\widehat S,\widehat f)$
+\end{algorithmic}
+\end{algorithm}
 
-\red{Let $W$ denote the composer weights. We design the composer so that $W=0$ reproduces the incumbent after the same smoothing used for every package. We therefore express each auxiliary score relative to the incumbent. To avoid $\log 0$, we first smooth each score vector. For $0<\lambda_0<1$, define}
+\subsection{Probability Alignment and Brier Calibration}
+
+Following the workflow overview, we first specify how aligned outputs are
+calibrated and summarized.
+
+For calibration record $(x_t,y_t)$, let $e_{y_t}\in\mathbb R^{C+1}$ be the
+one-hot label vector with a zero $\bot$ coordinate. Because the implementation
+uses the complete aligned output, it defines
 \begin{equation}
-\red{\mathcal S_{\lambda_0}(p)=(1-\lambda_0)p+\frac{\lambda_0}{C}\mathbf 1,}
-\label{eq:smoothing_base}
-\end{equation}
-\red{and let $\widetilde q_i=\mathcal S_{\lambda_0}(q_i)$ and $\widetilde b_j=\mathcal S_{\lambda_0}(b_j)$. The protocol fixes $\lambda_0$ before any site uses current data.}
-
-\red{Let $v_{ij}(x)\in\{0,1\}$ indicate whether detector $i$ returns a valid score for $x$ at site $j$. The common interface defines a no-score state for auxiliary packages, which this mask records throughout the workflow. The incumbent must always return a valid score, so the zero branch below applies only to auxiliary packages. We define}
-\begin{equation}
-\red{
-r_{ij}(x)=
-\begin{cases}
-\log \widetilde q_i(x)-\log \widetilde b_j(x), & v_{ij}(x)=1,\\
-\mathbf 0, & v_{ij}(x)=0.
-\end{cases}}
-\label{eq:score_residual}
-\end{equation}
-\red{We reserve a fixed feature block for every registered package. We then form}
-\begin{equation}
-\red{
-\phi_j(x)=
-\left[
-1,\{v_{ij}(x)\}_{i=1}^{m},
-\log \widetilde b_j(x)^{\mathsf T},
-\{r_{ij}(x)^{\mathsf T}\}_{i=1}^{m}
-\right]^{\mathsf T}.}
-\label{eq:composer_feature}
-\end{equation}
-
-\red{We use a linear residual head:}
-\begin{equation}
-\red{
-h_{j,W}(x)=
-\operatorname{softmax}\!\left(
-\log \widetilde b_j(x)+W\phi_j(x)
-\right),}
-\label{eq:residual_head}
-\end{equation}
-\red{where $W\in\mathbb R^{C\times(1+m+C+mC)}$. When $W=0$, $h_{j,0}(x)=\widetilde b_j(x)$. Thus, the residual head starts from the smoothed incumbent and fits corrections using current site data.}
-
-\red{Before shared training begins, every site checks that its incumbent is valid throughout $B_j^{fit}$. If any check fails, the collaboration stops and produces no candidate.}
-
-\subsection{\red{Federated Composer Training}}
-
-\red{We train the composer with the negative log-likelihood of Eq.~\ref{eq:residual_head}. For site $j$, the local fit loss is}
-\begin{equation}
-\red{
-\widehat R_j^{fit}(W)=
-\frac{1}{|B_j^{fit}|}
-\sum_{(x,y)\in B_j^{fit}}
--\log h_{j,W}(x)_y.}
-\label{eq:fit_risk}
-\end{equation}
-\red{We give every site equal weight. For a public radius $R>0$ fixed before any site uses current data, we minimize}
-\begin{equation}
-\red{
-\min_{\lVert W\rVert_F\le R}
-\frac{1}{J}\sum_{j=1}^{J}\widehat R_j^{fit}(W).}
-\label{eq:global_objective}
-\end{equation}
-
-\red{Because $\phi_j(x)$ and $\widetilde b_j(x)$ are fixed, the negative log-likelihood is convex in $W$. Thus, Eq.~\ref{eq:global_objective} is a convex problem.}
-
-\red{We initialize $W^{(0)}=0$ and fix the optimization schedule before any site uses current data. At round $t$, site $j$ computes the full-batch gradient $g_j^{(t)}=\nabla\widehat R_j^{fit}(W^{(t)})$. Secure aggregation gives the coordinator only their sum. It averages this sum and takes one projected step. When training completes, the final iterate becomes the shared composer $W_G$.}
-
-\red{We use a fixed-point encoding for secure aggregation~\cite{bonawitz2017secureaggregation}. Before training, we fix a public coordinate bound $G$, a scale $s$, and a modulus $Q>2J\lceil sG\rceil$. Each site clips and encodes its gradient under these parameters, which prevent the aggregate from wrapping around. This encoding changes the optimization only through the fixed clipping and quantization.}
-
-\red{We require the fixed set of $J$ sites in every completed round. A dropout aborts the round. If repeated dropout prevents training from completing, no candidate is produced and every site keeps its existing deployment. Section~\ref{sec:threat_model} states the separate privacy boundary.}
-
-\subsection{\red{Local Personalization}}
-
-\red{Because current traffic may differ across sites, we adapt $W_G$ rather than deploy it directly. Site $j$ selects $\mu_j>0$ with its fit data and solves}
-\begin{equation}
-\red{
-W_j=
-\arg\min_{\lVert W\rVert_F\le R}
-\widehat R_j^{fit}(W)
-+\mu_j\lVert W-W_G\rVert_F^2,}
-\label{eq:local_objective}
-\end{equation}
-\red{We keep $W_j$ at site $j$. Because the fit loss is convex, the local objective is strongly convex when $\mu_j>0$. Here, $\mu_j$ balances the shared composer against local fitting, while $W_G$ remains an anchor rather than a common final detector.}
-
-\red{Because $W_G$ is feasible in Eq.~\ref{eq:local_objective}, optimality gives}
-\begin{equation}
-\red{\widehat R_j^{fit}(W_j)
-+\mu_j\lVert W_j-W_G\rVert_F^2
-\le \widehat R_j^{fit}(W_G).}
-\label{eq:personalization_dominance}
-\end{equation}
-\red{Thus, exact local personalization does not increase fit loss relative to the shared composer. This fit-side property does not justify deployment on the audit distribution.}
-
-\subsection{\red{Deployment Audit}}
-
-\red{Local fitting produces a candidate but does not justify deployment. Before opening $B_j^{safe}$, we therefore fix $W_j$, the complete audit configuration, and a value $0<\lambda_a<1$. We use $\lambda_a$ only to bound probability-based audit losses; the transformation preserves the predicted class. We then define the audited pair as follows:}
-\begin{equation}
-\red{
-\overline h_j=\mathcal S_{\lambda_a}(h_{j,W_j}),
+\ell_{i,t}=\frac12\left\|q_i(x_t)-e_{y_t}\right\|_2^2,
 \qquad
-\overline b_j=\mathcal S_{\lambda_a}(\widetilde b_j),}
-\label{eq:audit_wrapper}
+g_{i,t}=1-\ell_{i,t}\in[0,1].
+\label{eq:brier_utility}
 \end{equation}
-\red{Here, $\overline h_j$ is the frozen candidate and $\overline b_j$ is the audited incumbent. A valid audit compares and deploys only these two predictors. Thus, the audited incumbent is not the raw probability output $b_j$.}
+Thus, $g_{i,t}$ is one full-vector Brier utility rather than a collection of
+coordinate-wise scores.
 
-\red{After opening $B_j^{safe}$, we construct the configured audit blocks and compare $\overline h_j$ with $\overline b_j$. For every preselected metric, a valid audit must produce the precommitted number $n_{j,e}\ge2$ of complete blocks. If any comparison cannot be completed as fixed, the audit is invalid. Section~\ref{sec:adoption_analysis} states the sampling assumption and defines the upper bound $U_{j,e}$. For a valid audit, the site adopts the candidate only when $U_{j,e}\le\eta_{j,e}$ for every preselected metric. Otherwise, it uses $\overline b_j$.}
-
-\red{The mask covers only the interface-defined no-score state. Any other package failure during the audit, including an incumbent failure, makes the audit invalid, so the site keeps its existing deployment.}
-
-\red{After deployment, the audited incumbent provides the runtime fallback. If an adopted candidate no longer executes as audited, the site uses $\overline b_j$; if $\overline b_j$ is unavailable, it abstains and alerts the operator. An interface change requires a new candidate and another audit.}
-
-
-\section{\red{Adoption Analysis}}
-\label{sec:adoption_analysis}
-
-\red{Candidate construction and deployment authorization are deliberately decoupled. Once a candidate and its audit rule are frozen, the analysis depends on the paired audit distribution rather than on the fitting algorithm. We first show that unlabeled outputs alone cannot generally identify the predictor with lower current classification error. We then establish a simultaneous adoption guarantee and characterize when the candidate's population excess risk lies below the adoption threshold by a positive margin.}
-
-\subsection{\red{Limits of Unlabeled Adoption}}
-
-\red{We first ask whether a site can decide adoption without current labels. Fix one site, and let $\widehat h$ and $\widehat b$ be the hard predictions of its frozen candidate and audited incumbent. Let $O$ denote any label-free view generated from the input distribution and these two fixed predictors. We allow fixed side information as long as it imposes no restriction on $P(Y\mid X)$.}
-
-\begin{proposition}[\red{Unlabeled relative risk is not identifiable}]
-\label{prop:unlabeled_limit}
-\red{Fix a marginal distribution $P_X$, and suppose}
+\bheading{Eligibility screening} To screen out candidates whose average
+current loss is either too large or too
+uncertain, the method uses $N$ calibration records and failure level
+$\delta\in(0,1)$ to compute
 \begin{equation}
-\red{\rho=\Pr_{P_X}[\widehat h(X)\ne\widehat b(X)]>0.}
-\label{eq:disagreement_mass}
-\end{equation}
-\red{For any possibly randomized rule $\mathcal A(O)\in\{\mathsf{adopt},\mathsf{retain}\}$ based on any number of unlabeled observations, and any $0<\gamma\le\rho$, there are two joint distributions $P_+$ and $P_-$ over $(X,Y)$ that induce the same distribution of $O$ but satisfy}
-\begin{equation}
-\red{\Delta_{01}(P_+)=-\gamma,
+\widehat\mu_i=\frac1N\sum_{t=1}^{N}g_{i,t},
 \qquad
-\Delta_{01}(P_-)=\gamma,}
-\label{eq:two_world_risks}
+r=\sqrt{\frac{\log(4M/\delta)}{2N}},
+\label{eq:overall_calibration}
 \end{equation}
-\red{where $\Delta_{01}(P)=R_{01,P}(\widehat h)-R_{01,P}(\widehat b)$. Moreover,}
+and admits candidate $i$ only if
 \begin{equation}
-\red{\Pr_{P_+}[\mathcal A=\mathsf{retain}]
-+\Pr_{P_-}[\mathcal A=\mathsf{adopt}]=1.}
-\label{eq:unlabeled_error_sum}
+R_i^+=1-\widehat\mu_i+r\le\tau_L.
+\label{eq:risk_gate}
 \end{equation}
-\red{Consequently, one of these two error probabilities is at least $1/2$.}
+Accordingly, the calibration-eligible pool is
+\begin{equation}
+\widehat{\mathcal R}=\{i:R_i^+\le\tau_L\}.
+\label{eq:eligible_pool}
+\end{equation}
+Thus, eligibility depends on an upper confidence bound on risk rather than on
+empirical utility alone.
+
+\bheading{Classwise evidence} Average eligibility does not preserve
+class-specific evidence for later
+refinement and certification. For class $c$, let
+$N_c=\sum_t\mathbf 1\{y_t=c\}$ and
+\begin{equation}
+\widehat\mu_{i,c}=\frac1{N_c}\sum_{t:y_t=c}g_{i,t}.
+\end{equation}
+Because the protocol requires every calibration class to occur, $N_c>0$.
+The class-conditional radius and lower utility are
+\begin{equation}
+r_c=\sqrt{\frac{\log(4MC/\delta)}{2N_c}},
+\qquad
+a_{i,c}=\left[\widehat\mu_{i,c}-r_c\right]_+,
+\label{eq:class_lower_utility}
+\end{equation}
+where $[z]_+=\max\{0,z\}$.
+Hence, $a_{i,c}$ is the class-specific lower score used by the secondary
+objective and the effective-coverage certificate.
+
+\bheading{Behavioral similarity} Two eligible candidates can still behave
+almost identically. To measure this
+redundancy, the method deterministically selects a class-stratified anchor set
+$\mathcal A$ and forms
+\begin{equation}
+z_i=\operatorname{vec}\left([q_i(x_t)]_{t\in\mathcal A}\right),
+\qquad
+\kappa_{i,k}=\left[
+\frac{\langle z_i,z_k\rangle}{\|z_i\|_2\|z_k\|_2}
+\right]_{0}^{1}.
+\label{eq:behavior_similarity}
+\end{equation}
+Here, $[\cdot]_0^1$ clips numerical roundoff into $[0,1]$. We use
+$\kappa_{i,k}$ in a facility-location term that measures representativeness,
+not as a pairwise-diversity score.
+
+\subsection{Coverage-Prioritized Detector Selection}
+
+Calibration now supplies the evidence needed for budgeted selection. We first
+define the primary support objective.
+
+\bheading{Weighted semantic coverage} For candidate $i$ and target class $c$,
+let $H_{i,c}$ be the accepted
+source-side support count after semantic mapping. After fixing
+$n_{\min}>0$, define
+\begin{equation}
+\Gamma_{i,c}=\mathbf 1\{H_{i,c}\ge n_{\min}\}.
+\label{eq:semantic_presence}
+\end{equation}
+If $H_c=\sum_i H_{i,c}>0$, the registered profile uses
+\begin{equation}
+w_c=\frac{H_c^{-1/2}}{\sum_{d=1}^{C}H_d^{-1/2}},
+\qquad
+\sum_{c=1}^{C}w_c=1.
+\label{eq:semantic_weights}
+\end{equation}
+Thus, classes with less aggregate source support receive greater weight.
+Then, for any selected set $S$,
+\begin{equation}
+C_{\mathrm{sem}}(S)=
+\sum_{c=1}^{C}w_c
+\mathbf 1\{\exists i\in S:\Gamma_{i,c}=1\}.
+\label{eq:semantic_coverage}
+\end{equation}
+The $\bot$ coordinate never contributes to this coverage. Consequently,
+$C_{\mathrm{sem}}$ measures the breadth of declared source support rather than
+current predictive accuracy.
+
+\bheading{Secondary behavioral objective} Only after fixing semantic coverage
+does the method compare current
+predictive behavior. With $h_\tau(z)=1-e^{-z/\tau}$, define
+\begin{align}
+U(S)
+&=\frac1N\sum_{t=1}^{N}
+h_{\tau_U}\!\left(\sum_{i\in S}g_{i,t}\right),
+\nonumber\\
+C_{\mathrm{pred}}(S)
+&=\frac1C\sum_{c=1}^{C}
+h_{\tau_C}\!\left(\sum_{i\in S}a_{i,c}\right),
+\nonumber\\
+D_{\mathrm{rep}}(S)
+&=\frac1{|\widehat{\mathcal R}|}
+\sum_{k\in\widehat{\mathcal R}}
+\max_{i\in S}\kappa_{i,k}.
+\label{eq:secondary_components}
+\end{align}
+Here, $U$ summarizes record-level utility, $C_{\mathrm{pred}}$ summarizes
+conservative classwise evidence, and $D_{\mathrm{rep}}$ rewards behavior that
+represents the eligible pool.
+Here and throughout the analysis, we set
+$\max_{i\in\varnothing}\kappa_{i,k}=0$, matching the implementation's
+zero-valued empty-set convention.
+Unlike $C_{\mathrm{sem}}$, $C_{\mathrm{pred}}$ averages classes uniformly,
+exactly as in the implementation. After fixing nonnegative weights that sum
+to one, the secondary objective is
+\begin{equation}
+\Phi(S)=\lambda_U U(S)+\lambda_C C_{\mathrm{pred}}(S)
++\lambda_D D_{\mathrm{rep}}(S).
+\label{eq:secondary_objective}
+\end{equation}
+This score is used only after semantic coverage has been fixed.
+
+\bheading{Budgeted selection procedure} We therefore define the feasible
+family and its optimal primary value as
+\begin{equation}
+\begin{aligned}
+\mathcal F_B&=\left\{
+\varnothing\ne S\subseteq\widehat{\mathcal R}:
+\sum_{i\in S}b_i\le B
+\right\},\\
+W^\star&=\max_{S\in\mathcal F_B}C_{\mathrm{sem}}(S).
+\end{aligned}
+\label{eq:primary_value}
+\end{equation}
+To compute $W^\star$, the production solver encodes every $\Gamma_i$ as a
+$C$-bit mask and uses a sparse dynamic program to recover a least-cost witness.
+It then spends any remaining budget through density-based fill and accepts a
+one-for-one replacement only when the change preserves $W^\star$ and improves
+$\Phi$ by more than the registered tolerance $\varepsilon_{\mathrm{loc}}$.
+
+For a matched comparison, the implementation also applies the same
+fill--one-swap procedure without semantic priority. If that no-semantic
+result already attains $W^\star$, \Fname returns the same set unchanged.
+Otherwise, it refines the exact coverage witness and, when available, a
+coverage-optimal singleton seed, then returns the better locally refined
+result. Thus, when the semantic constraint is inactive, both variants return
+the same set; they differ only when semantic priority changes the refinement
+path.
+
+\subsection{Shared Stacker Learning}
+
+After the selector fixes $\widehat S$, the selected representation is
+\begin{equation}
+\phi_{\widehat S}(x)=
+\operatorname{concat}_{i\in\widehat S}q_i(x)
+\in\mathbb R^{|\widehat S|(C+1)}.
+\label{eq:selected_representation}
+\end{equation}
+
+\bheading{Local score perturbation} When local score protection is enabled,
+client $j$ independently perturbs
+every coordinate of each selected block:
+\begin{equation}
+\widetilde q_i(x_t)=q_i(x_t)+\eta_{i,t},
+\qquad
+\eta_{i,t,k}\overset{\mathrm{iid}}{\sim}
+\operatorname{Lap}\!\left(0,\frac{2}{\epsilon_b}\right).
+\label{eq:local_laplace_release}
+\end{equation}
+We write the perturbed representation as
+\begin{equation}
+\widetilde\phi_{\widehat S}(x)=
+\operatorname{concat}_{i\in\widehat S}\widetilde q_i(x).
+\label{eq:private_selected_representation}
+\end{equation}
+
+\bheading{Shared stacker fitting} Using the independent stacker-fit partition
+$\mathcal D^{\mathrm{stk}}$, the
+coordinator then trains
+\begin{equation}
+\widehat f_{\widehat S}=\mathsf{Fit}_{\mathrm{global}}
+\left(
+\{(\widetilde\phi_{\widehat S}(x_t),y_t):
+(x_t,y_t)\in\mathcal D^{\mathrm{stk}}\}
+\right).
+\label{eq:shared_stacker}
+\end{equation}
+For the nonprivate configuration, the method sets
+$\widetilde\phi_{\widehat S}=\phi_{\widehat S}$. Although the implementation
+may cache a full aligned block matrix for efficiency, both configurations use
+only the columns indexed by $\widehat S$. Unselected blocks therefore cannot
+affect the learned classifier.
+
+The optional centralized sensitivity mode samples
+Eq.~\ref{eq:local_laplace_release} after selection solely to measure the effect
+of noise; it does not instantiate a client-side trust boundary or fresh
+deployment randomness. At sealed-test inference, the method uses the same
+selected layout and leaves every contributed detector unchanged.
+
+\section{Theoretical Analysis}
+\label{sec:method_analysis}
+
+In this section, we establish guarantees for score-upload privacy,
+calibration, primary optimization, and local secondary refinement. We then
+analyze how client-mixture shift affects the interpretation of current
+evidence.
+
+\subsection{Local Privacy of Score Uploads}
+
+We begin with the only privacy claim made by \Fname: the score blocks
+randomized before upload.
+
+We fix the selected set before observing any stacker-fit record and treat each
+record label as public. Accordingly, $(x,y)$ and $(x',y)$ are adjacent only
+when their feature vectors differ. This label-fixed relation is necessary
+because Algorithm~\ref{alg:silostitch} uploads $y$ without perturbation. For a
+batched upload, adjacent batches have the same size, row alignment, and label
+sequence, and they differ in exactly one feature vector. Each client samples
+noise independently across records, selected detector blocks, and output
+coordinates.
+
+\begin{theorem}[Label-conditional local score privacy]
+\label{thm:local_score_privacy}
+Suppose that the selected detectors and their semantic maps are fixed and
+that $0<\epsilon_b<\infty$ and each client uses fresh private randomness in
+Eq.~\ref{eq:local_laplace_release}. Then one released detector block is
+$(\epsilon_b,0)$-locally differentially private under the preceding
+adjacency relation. If $s=|\widehat S|$ blocks are released for the same
+record, their joint release is $(s\epsilon_b,0)$-locally differentially
+private. Under one-record replacement, releasing the entire client batch has
+the same record-level guarantee. More generally, assigning parameter
+$\epsilon_i$ to block $i$ gives
+$(\sum_{i\in\widehat S}\epsilon_i,0)$-local differential privacy.
+\end{theorem}
+
+\begin{proof}
+Because $q_i(x)$ and $q_i(x')$ are probability vectors,
+$\lVert q_i(x)-q_i(x')\rVert_1\le2$. Therefore, coordinatewise Laplace noise
+with scale $2/\epsilon_b$ bounds the density ratio of one released block by
+$e^{\epsilon_b}$. Sequential composition over the $s$ selected blocks gives
+$e^{s\epsilon_b}$. Because different rows use independent randomization and
+neighboring batches differ in one row, parallel composition across rows leaves
+this bound unchanged. Appending the unchanged public labels does not alter the
+density ratio.
+\end{proof}
+
+Thus, a total per-record score budget $\epsilon$ can be obtained by assigning
+$\epsilon_b=\epsilon/s$ to each block, which changes the noise scale to
+$2s/\epsilon$. However, Theorem~\ref{thm:local_score_privacy} does not provide
+label privacy, full-record privacy, client-level privacy, calibration
+privacy, or an end-to-end protocol guarantee. Repeated uploads require an
+additional composition across rounds.
+
+\subsection{Calibration under Heterogeneous Clients}
+
+The privacy result concerns the fit partition, whereas detector eligibility
+depends on separate calibration records. We therefore analyze those
+statistics next.
+
+Because calibration records can originate from different clients and
+classes, we condition on both the observed client--label design
+$\mathcal I=\{(j_t,y_t)\}_{t=1}^{N}$ and the candidate pool $\mathcal Q$
+frozen by the preceding fit stage. We assume that calibration records are
+conditionally independent given $(\mathcal Q,\mathcal I)$, although their
+conditional distributions may differ across $t$. Define
+\begin{equation}
+\mu_i=\frac1N\sum_{t=1}^{N}\mathbb E[g_{i,t}\mid\mathcal Q,\mathcal I],
+\qquad
+R_i=1-\mu_i,
+\label{eq:heterogeneous_overall_mean}
+\end{equation}
+and
+\begin{equation}
+\mu_{i,c}=\frac1{N_c}\sum_{t:y_t=c}
+\mathbb E[g_{i,t}\mid\mathcal Q,\mathcal I].
+\label{eq:heterogeneous_class_mean}
+\end{equation}
+Thus, these quantities describe the record-weighted calibration mixture
+rather than equal-client or worst-client performance.
+
+\begin{theorem}[Simultaneous calibration]
+\label{thm:simultaneous_calibration}
+Under the preceding assumptions, with probability at least $1-\delta$, the
+following inequalities hold simultaneously for every candidate $i$ and
+class $c$:
+\begin{align}
+R_i&\le R_i^+\le R_i+2r,
+\label{eq:simultaneous_risk}\\
+\max\{0,\mu_{i,c}-2r_c\}
+&\le a_{i,c}\le\mu_{i,c}.
+\label{eq:simultaneous_class}
+\end{align}
+Consequently, the inequalities remain valid for every candidate in any set
+selected adaptively from the calibration statistics.
+\end{theorem}
+
+\begin{proof}
+Conditioning on $(\mathcal Q,\mathcal I)$, Hoeffding's inequality gives
+\[
+\Pr\{|\widehat\mu_i-\mu_i|>r\mid\mathcal Q,\mathcal I\}
+\le2e^{-2Nr^2}=\frac{\delta}{2M}.
+\]
+Therefore, a union bound over $M$ candidates spends at most $\delta/2$.
+Likewise,
+\[
+\Pr\{|\widehat\mu_{i,c}-\mu_{i,c}|>r_c\mid\mathcal Q,\mathcal I\}
+\le2e^{-2N_cr_c^2}=\frac{\delta}{2MC},
+\]
+so a second union bound over $MC$ pairs spends at most $\delta/2$. The
+intersection has probability at least $1-\delta$, and it does not require
+different candidates evaluated on the same record to be independent.
+
+On this event, $1-\widehat\mu_i+r$ lies between $R_i$ and $R_i+2r$.
+Moreover, $\widehat\mu_{i,c}-r_c$ lies between $\mu_{i,c}-2r_c$ and
+$\mu_{i,c}$. Applying $[\cdot]_+$ proves the class inequalities. Because
+the event covers all $M+MC$ coordinates before selection, taking a
+data-dependent subset requires no additional union bound over $2^M$ sets.
+\end{proof}
+
+For any pool $\mathcal E$, let $W(\mathcal E)$ be the largest feasible
+semantic coverage available from that pool, with value zero if no nonempty
+set is feasible. On the event in Theorem~\ref{thm:simultaneous_calibration},
+define
+\begin{equation}
+\mathcal R^-=\{i:R_i\le\tau_L-2r\},
+\qquad
+\mathcal R^0=\{i:R_i\le\tau_L\}.
+\end{equation}
+Then,
+\begin{equation}
+\mathcal R^-\subseteq\widehat{\mathcal R}\subseteq\mathcal R^0,
+\qquad
+W(\mathcal R^-)\le W(\widehat{\mathcal R})\le W(\mathcal R^0).
+\label{eq:coverage_sandwich}
+\end{equation}
+Indeed, the left inclusion follows from $R_i^+\le R_i+2r$, while the right
+inclusion follows from $R_i\le R_i^+$. Thus, if one primary-optimal witness
+over $\mathcal R^0$ lies entirely in $\mathcal R^-$, calibration preserves
+the population-mixture primary value.
+
+Because the registered profile uses $\tau_L=1$ while normalized Brier risk
+already lies in $[0,1]$, the population statement $R_i\le1$ is valid but
+trivial. Consequently, we call $\widehat{\mathcal R}$ a calibration-eligible
+pool. To obtain a substantive application-risk threshold, practitioners must
+preregister $\tau_L<1$ and rerun the corresponding experiment.
+
+\subsection{Exact Primary Coverage under a Hard Budget}
+
+The simultaneous event validates the statistics used to form the eligible
+pool. With that pool fixed, we now characterize the primary selection problem
+and its exact solver.
+
+\begin{theorem}[Primary hardness and exact parameterized solver]
+\label{thm:primary_solver}
+Computing $W^\star$ is NP-hard, even when every candidate is eligible, every
+cost is one, and all class weights are uniform. Nevertheless, if the
+registered state cap is not exceeded, the bitmask dynamic program returns a
+nonempty feasible set $S_0$ with
+\begin{equation}
+C_{\mathrm{sem}}(S_0)=W^\star.
+\end{equation}
+It stores at most $2^C$ masks and examines at most
+$|\widehat{\mathcal R}|2^C$ state transitions. Thus, its primary stage is
+fixed-parameter tractable in $C$.
+\end{theorem}
+
+\begin{proof}
+For hardness, take a Maximum Coverage instance with universe
+$\{1,\ldots,C\}$, subsets $\Gamma_1,\ldots,\Gamma_M$, and cardinality
+limit $k$. Set $b_i=1$, $B=k$, and $w_c=1/C$. Maximizing
+$C_{\mathrm{sem}}$ then solves that instance up to the constant factor
+$1/C$.
+
+For exactness, after processing the first $t$ eligible candidates, associate
+each reachable union mask $h$ with its least-cost witness. Omitting candidate
+$t$ preserves an earlier state, whereas including it extends an earlier
+mask to $h\vee\Gamma_t$. Every subset makes exactly one of these choices.
+Moreover, a lower-cost witness for the same mask dominates every higher-cost
+witness under all future union operations. Induction therefore shows that
+the final table contains the least-cost witness for every reachable mask.
+Scanning the budget-feasible masks returns exactly $W^\star$.
+
+A $C$-bit mask has at most $2^C$ values, and each eligible candidate extends
+each current mask at most once. When all attainable masks have value zero,
+the implementation returns the least-cost feasible singleton, which enforces
+the nonempty stacker input without changing the primary value.
+\end{proof}
+
+However, this transition count does not capture the full running time of the
+current Python implementation, which stores, copies, and sorts complete
+witness tuples. The implementation also raises an error when more than
+$10^6$ states are required; it does not silently switch to an approximate
+primary solver.
+
+\subsection{Secondary Objective and Local Refinement}
+
+The primary solver determines $W^\star$. The remaining question is how the
+method compares feasible sets that attain this value.
+
+Let $\mathcal V=\{C_{\mathrm{sem}}(S):S\in\mathcal F_B\}$ contain the
+attainable primary values. When $\mathcal V$ has at least two values, let
+$\Delta_{\mathrm{inst}}$ be its smallest positive gap. Because
+$0\le\Phi(S)\le1$, any coefficient $K>1/\Delta_{\mathrm{inst}}$ is sufficient
+to make every maximizer of $KC_{\mathrm{sem}}+\Phi$ lexicographic for that
+fixed instance. However, no finite coefficient works for every instance,
+because normalized class weights can make the smallest positive coverage gap
+arbitrarily small. Thus, the strict order in
+Eq.~\ref{eq:lexicographic_target} does not require instance-specific scale
+tuning.
+
+\begin{proposition}[Secondary structure]
+\label{prop:secondary_structure}
+For fixed calibration statistics, $U$, $C_{\mathrm{pred}}$, and
+$D_{\mathrm{rep}}$ are normalized, monotone, submodular set functions.
+Consequently, their nonnegative weighted combination $\Phi$ has the same
+properties.
 \end{proposition}
 
 \begin{proof}
-\red{Let $S=\{x:\widehat h(x)\ne\widehat b(x)\}$ and $a=\gamma/\rho$. Both worlds draw $X$ from $P_X$. Outside $S$, they set $Y$ to the common prediction. On $S$, $P_+$ sets $Y=\widehat h(X)$ with probability $(1+a)/2$ and $Y=\widehat b(X)$ otherwise; $P_-$ exchanges these probabilities. Thus, the worlds expose the same unlabeled observations but have relative risks $-\gamma$ and $\gamma$. The rule adopts with the same probability, say $q$, in both worlds, so its two error probabilities are $1-q$ and $q$.}
+For $U$ and $C_{\mathrm{pred}}$, each summand applies the nondecreasing
+concave function $h_\tau$ to a nonnegative modular sum. Therefore, the gain
+from adding the same candidate cannot increase as the current set grows. For
+$D_{\mathrm{rep}}$, target $k$ contributes
+$\max_{i\in S}\kappa_{i,k}$, whose marginal gain is
+\[
+\max\{0,\kappa_{a,k}-\max_{i\in S}\kappa_{i,k}\}.
+\]
+This gain also cannot increase as $S$ grows. Averaging and taking a
+nonnegative weighted sum preserve all three properties.
 \end{proof}
 
-\red{Proposition~\ref{prop:unlabeled_limit} does not rule out unlabeled adoption under an additional assumption that links labels to the observed information. It also permits a site to retain its incumbent. Instead, it shows that unlabeled observations alone cannot generally identify even which fixed predictor has lower classification error. We therefore use current labels for the adoption audit.}
-
-\subsection{\red{Simultaneous Incumbent-Relative Adoption}}
-
-\red{Let $\mathcal T$ denote all protocol choices and outputs fixed before any audit set is opened. In particular, $\mathcal T$ fixes both predictors, the complete audit configuration, and every block count $n_{j,e}$. We condition on $\mathcal T$.}
-
-\red{For each site--metric pair, the fixed rule draws $n_{j,e}$ blocks $\mathcal B_{j,e,1},\ldots,\mathcal B_{j,e,n_{j,e}}$ from $B_j^{safe}$. Given $\mathcal T$, we assume that these blocks are independent and identically distributed. For a class-conditional metric, the rule draws fixed-size blocks from the corresponding class. We allow dependence among flows in the same block. We also allow metrics to reuse records, so the proof does not assume independence across metrics.}
-
-\red{For the bounded loss $\ell_e$ of audit metric $e$, define}
+Although $\Phi$ is monotone submodular, the equal-primary family
 \begin{equation}
-\red{
-\begin{aligned}
-L_{j,e}(g;\mathcal B)
-&=\frac{1}{|\mathcal B|}
-\sum_{(x,y)\in\mathcal B}\ell_e(g(x),y),\\
-R_{j,e}(g)&=\mathbb E[L_{j,e}(g;\mathcal B)\mid\mathcal T].
-\end{aligned}}
-\label{eq:block_risk}
+\mathcal F^\star=
+\{S\in\mathcal F_B:C_{\mathrm{sem}}(S)=W^\star\}
 \end{equation}
-\red{We compare the candidate and audited incumbent on each block:}
-\begin{equation}
-\red{
-\begin{aligned}
-D_{j,e,r}
-&=L_{j,e}(\overline h_j;\mathcal B_{j,e,r})
--L_{j,e}(\overline b_j;\mathcal B_{j,e,r}),\\
-\Delta_{j,e}&=R_{j,e}(\overline h_j)-R_{j,e}(\overline b_j).
-\end{aligned}}
-\label{eq:paired_difference}
-\end{equation}
-\red{For a classification-error audit, pairing has a direct variance interpretation. The per-record loss difference is zero whenever the two hard predictions agree. Jensen's inequality therefore gives}
-\begin{equation}
-\red{\operatorname{Var}(D_{j,e,r}\mid\mathcal T)
-\le \mathbb E[D_{j,e,r}^2\mid\mathcal T]
-\le \rho_{j,e},}
-\label{eq:disagreement_variance}
-\end{equation}
-\red{where $\rho_{j,e}$ is the expected fraction of records in an audit block on which the two predictions disagree. Hence, incumbent-relative comparison can be sharper when the candidate changes few predictions, although the anchor alone does not guarantee small disagreement.}
-\red{Assume $D_{j,e,r}\in[-M_{j,e},M_{j,e}]$. Let}
-\begin{equation}
-\red{
-\begin{aligned}
-\overline D_{j,e}&=\frac{1}{n_{j,e}}\sum_{r=1}^{n_{j,e}}D_{j,e,r},\\
-\widehat V_{j,e}&=
-\frac{1}{n_{j,e}-1}
-\sum_{r=1}^{n_{j,e}}(D_{j,e,r}-\overline D_{j,e})^2.
-\end{aligned}}
-\label{eq:paired_variance}
-\end{equation}
-\red{For a per-pair failure probability $\alpha_{j,e}\in(0,1)$, we apply the empirical Bernstein bound~\cite{maurer2009empiricalbernstein} to obtain}
-\begin{equation}
-\red{
-U_{j,e}=\overline D_{j,e}
-+\sqrt{\frac{2\widehat V_{j,e}\log(2/\alpha_{j,e})}{n_{j,e}}}
-+\frac{14M_{j,e}\log(2/\alpha_{j,e})}{3(n_{j,e}-1)}.}
-\label{eq:bernstein_ucb}
-\end{equation}
+is not downward closed and need not satisfy an exchange axiom. Therefore,
+standard monotone-submodular knapsack guarantees, including $1-1/e$, do not
+apply to the production secondary stage.
 
-\red{Thus, $U_{j,e}$ is an upper confidence bound on the candidate's excess risk for one site and audit metric. We next obtain a simultaneous bound over all site--metric pairs.}
+For $S\in\mathcal F^\star$, let $\mathcal N_1(S)$ contain every set obtained
+by removing exactly one selected candidate and adding exactly one unselected
+candidate while preserving budget feasibility and $W^\star$.
 
-\begin{theorem}[\red{Simultaneous adoption relative to the audited incumbent}]
-\red{Before the audit, fix $\{\mathcal E_j\}_{j=1}^{J}$, the values $\alpha_{j,e}\in(0,1)$ and $\eta_{j,e}\ge0$ for every $e\in\mathcal E_j$, and $\alpha_{\mathrm{tot}}\in(0,1)$. Suppose that $n_{j,e}\ge2$, the variables $D_{j,e,1},\ldots,D_{j,e,n_{j,e}}$ are i.i.d. in $[-M_{j,e},M_{j,e}]$ given $\mathcal T$, and}
+\begin{theorem}[Coverage preservation and one-swap certificate]
+\label{thm:local_refinement}
+If the primary dynamic program returns normally, the production refinement
+terminates after finitely many accepted operations and returns
+$\widehat S\in\mathcal F^\star$ such that
 \begin{equation}
-\red{\sum_{j=1}^{J}\sum_{e\in\mathcal E_j}\alpha_{j,e}
-\le\alpha_{\mathrm{tot}}.}
-\label{eq:failure_budget}
-\end{equation}
-\red{Then, conditional on $\mathcal T$, with probability at least $1-\alpha_{\mathrm{tot}}$, $\Delta_{j,e}\le U_{j,e}$ holds for every site and audit metric. Let site $j$ deploy $\overline h_j$ only when $U_{j,e}\le\eta_{j,e}$ for every $e\in\mathcal E_j$ and otherwise deploy $\overline b_j$. Under the same event,}
-\begin{equation}
-\red{
-R_{j,e}(h_j^{\mathrm{deploy}})-R_{j,e}(\overline b_j)
-\le\eta_{j,e},
-\qquad e\in\mathcal E_j.}
-\label{eq:joint_adoption}
+\Phi(S')\le\Phi(\widehat S)+\varepsilon_{\mathrm{loc}},
+\qquad
+\forall S'\in\mathcal N_1(\widehat S).
+\label{eq:one_swap_certificate}
 \end{equation}
 \end{theorem}
 
 \begin{proof}
-\red{For one site and audit metric, the empirical Bernstein inequality applied to $D_{j,e,r}$ gives $\Pr(\Delta_{j,e}>U_{j,e}\mid\mathcal T)\le\alpha_{j,e}$. Next, a union bound and Eq.~\ref{eq:failure_budget} give the simultaneous result. If every audit metric passes, Eq.~\ref{eq:joint_adoption} follows from $\Delta_{j,e}\le U_{j,e}\le\eta_{j,e}$. Otherwise, $h_j^{\mathrm{deploy}}=\overline b_j$, and the risk difference is zero.}
+The constrained seed has coverage $W^\star$. Because
+$C_{\mathrm{sem}}$ is monotone and $W^\star$ is already maximal, every
+feasible fill keeps that value. The implementation separately checks every
+accepted replacement for budget feasibility and equality to $W^\star$.
+Each accepted operation also increases $\Phi$ by more than
+$\varepsilon_{\mathrm{loc}}$. Because the candidate pool has only finitely
+many subsets, the procedure terminates. At termination, the exhaustive
+one-for-one search has found no feasible coverage-preserving replacement
+whose gain exceeds the tolerance, which proves
+Eq.~\ref{eq:one_swap_certificate}.
 \end{proof}
 
-\begin{corollary}[\red{Power of the local audit}]
-\label{cor:audit_power}
-\red{Condition on $\mathcal T$ and fix one site--metric pair. Suppose that $n\ge2$, the paired differences $D_1,\ldots,D_n$ are i.i.d. in $[-M,M]$, and $\alpha,\beta\in(0,1)$. If the population excess risk satisfies $\Delta\le\eta-\gamma$ for some $\gamma>0$, and}
+Nevertheless, this one-swap certificate does not rule out a better feasible
+addition, deletion, multi-candidate exchange, or globally better set. In
+particular, the fill stage ranks candidates by gain per byte but stops when
+the chosen candidate's absolute gain falls below tolerance. This stopping rule
+need not test every other feasible addition.
+
+\subsection{Effective Coverage under Client Mixture Shift}
+
+The preceding results treat declared support and current predictive behavior
+as separate quantities. We now ask when the former is backed by the latter
+and how that relation changes under client-mixture shift.
+
+The following quantities do not affect eligibility, primary optimization,
+secondary refinement, or stacker fitting. We define them only as
+post-selection certificates for a frozen returned set, using statistics
+already computed by the method.
+
+To test whether declared source support is backed by current evidence, let
+$\vartheta_c\in[0,1]$ be a prespecified current-competence threshold and define
 \begin{equation}
-\red{
-M\sqrt{\frac{2\log(1/\beta)}{n}}
-+M\sqrt{\frac{2\log(2/\alpha)}{n-1}}
-+\frac{14M\log(2/\alpha)}{3(n-1)}
-\le\gamma,}
-\label{eq:audit_power_condition}
+C_{\mathrm{cert}}(S;\boldsymbol\vartheta)=
+\sum_{c=1}^{C}w_c
+\mathbf 1\{\exists i\in S:
+\Gamma_{i,c}=1\ \wedge\ a_{i,c}\ge\vartheta_c\}.
+\label{eq:certified_coverage}
 \end{equation}
-\red{then $\Pr(U\le\eta\mid\mathcal T)\ge1-\beta$. If the condition holds for every metric $e$ at site $j$ and $\sum_{e\in\mathcal E_j}\beta_{j,e}\le\beta_j$, then site $j$ accepts the candidate with conditional probability at least $1-\beta_j$.}
-\end{corollary}
+Thus, a class contributes only when a selected detector provides both declared
+source support and a conservative current-utility score.
+For comparison, let $C_\mu^a(S;\boldsymbol\vartheta)$ replace
+$a_{i,c}\ge\vartheta_c$ by
+$\mu_{i,c}^a\ge\vartheta_c$, where
+$a\in\{\mathrm{cal},\mathrm{dep}\}$.
+
+Let $h=(j,c)$ index a client--class cell. Suppose that detector behavior
+within each cell remains stable between calibration and deployment, while
+only the mixture weights change. Let $R_{i,h}\in[0,1]$ denote the cell risk,
+and let $\pi_h^{\mathrm{cal}}$ and $\pi_h^{\mathrm{dep}}$ denote the two
+mixtures. For $a\in\{\mathrm{cal},\mathrm{dep}\}$, define
+\begin{equation}
+R_i^a=\sum_{j,c}\pi_{j,c}^a R_{i,j,c},
+\qquad
+\mu_{i,c}^a=\sum_j\pi_{j\mid c}^a(1-R_{i,j,c}),
+\label{eq:mixture_quantities}
+\end{equation}
+and let $\operatorname{TV}(p,q)=\tfrac12\lVert p-q\rVert_1$. Under the
+calibration design, the means in
+Eqs.~\ref{eq:heterogeneous_overall_mean}--\ref{eq:heterogeneous_class_mean}
+equal $1-R_i^{\mathrm{cal}}$ and $\mu_{i,c}^{\mathrm{cal}}$, respectively.
+
+\begin{theorem}[Effective coverage under mixture shift]
+\label{thm:post_selection_certificates}
+Suppose that the within-class client mixtures differ by at most $\eta_c$.
+On the simultaneous calibration event, every adaptively selected set
+$\widehat S$ satisfies
+\begin{equation}
+\begin{aligned}
+C_\mu^{\mathrm{cal}}(\widehat S;
+\boldsymbol\vartheta+\boldsymbol\eta+2\boldsymbol r)
+&\le C_{\mathrm{cert}}(\widehat S;
+\boldsymbol\vartheta+\boldsymbol\eta)
+\\
+&\le C_\mu^{\mathrm{dep}}(\widehat S;\boldsymbol\vartheta)
+\le C_{\mathrm{sem}}(\widehat S).
+\end{aligned}
+\label{eq:certified_coverage_sandwich}
+\end{equation}
+where $(\boldsymbol r)_c=r_c$ and
+$(\boldsymbol\eta)_c=\eta_c$.
+
+Moreover, if
+$\operatorname{TV}(\pi^{\mathrm{dep}},\pi^{\mathrm{cal}})\le\eta$, then
+\begin{equation}
+R_i^{\mathrm{dep}}\le R_i^{\mathrm{cal}}+\eta.
+\label{eq:risk_mixture_shift}
+\end{equation}
+\end{theorem}
 
 \begin{proof}
-\red{Because $D_r\in[-M,M]$, the sample variance satisfies $\widehat V\le nM^2/(n-1)$. Hoeffding's inequality gives $\overline D\le\Delta+M\sqrt{2\log(1/\beta)/n}$ with probability at least $1-\beta$. Substituting these two bounds into Eq.~\ref{eq:bernstein_ucb} and using Eq.~\ref{eq:audit_power_condition} gives $U\le\eta$. A union bound gives the statement for all metrics; no independence across metrics is needed.}
+Theorem~\ref{thm:simultaneous_calibration} and the mixture assumption give
+\[
+\mu_{i,c}^{\mathrm{cal}}\ge\vartheta_c+\eta_c+2r_c
+\Longrightarrow a_{i,c}\ge\vartheta_c+\eta_c
+\Longrightarrow\mu_{i,c}^{\mathrm{dep}}\ge\vartheta_c.
+\]
+Intersecting these implications with the fixed support edge
+$\Gamma_{i,c}=1$, taking the existential quantifier over selected
+candidates, and summing class weights proves
+Eq.~\ref{eq:certified_coverage_sandwich}.
+
+For the final claim, total variation bounds the change in the expectation of
+any $[0,1]$-valued function. Applying this bound to the cell risks yields
+Eq.~\ref{eq:risk_mixture_shift}.
 \end{proof}
 
-\red{A sufficient audit size in Corollary~\ref{cor:audit_power} scales as}
-\begin{equation}
-\red{n=O\!\left(1+
-\frac{M^2}{\gamma^2}
-\left[\log\frac{2}{\alpha}+\log\frac{1}{\beta}\right]
-+\frac{M}{\gamma}\log\frac{2}{\alpha}
-\right)}
-\label{eq:audit_power_rate}
-\end{equation}
-\red{independent blocks. This sufficient condition is conservative because it upper-bounds the sample variance, whereas the actual audit uses the observed paired variance.}
+Thus, $C_{\mathrm{cert}}$ asks whether current class-conditional Brier utility
+supports the historical class claims of the selected detectors; it does not
+certify recall, class accuracy, or stacker performance. The mixture bound also
+excludes changes within a client--class cell. Because the current
+implementation does not yet emit $C_{\mathrm{cert}}$ or the mixture-sensitivity
+result, both remain analysis quantities rather than executed selection steps.
 
-\red{For negative log-likelihood, Eq.~\ref{eq:audit_wrapper} makes every class probability at least $\lambda_a/C$. Thus, we set $M_{j,e}=\log(C/\lambda_a)$. For a conditional error rate, we instead use its corresponding class-conditional blocks and set $M_{j,e}=1$. For example, FPR uses benign blocks.}
-
-\subsection{\red{Scope of the Guarantee}}
-
-\red{Because we condition on the complete pre-audit state, the guarantee treats the candidate and audit rule as fixed. It therefore requires neither exact optimizer convergence nor an accuracy assumption about a package. Here, $n_{j,e}$ counts independent labeled blocks rather than individual flows. More blocks and lower paired variance tighten Eq.~\ref{eq:bernstein_ucb}, while a power guarantee also requires a positive margin below the adoption threshold.}
-
-\red{The guarantee applies to one frozen candidate and the fixed audit-block distribution. In particular, non-overlapping windows alone do not establish the block assumption. After a post-audit shift, the prior guarantee no longer applies, and a new adoption claim requires another audit.}
-
-\red{The guarantee also applies only to the preselected metrics. For example, NLL control does not imply Macro-F1 control. Moreover, we compare the candidate with the audited incumbent and do not show that the incumbent itself is safe. We assume that both audited predictors execute as fixed; post-audit package failures and the resulting fallback policy are outside this statistical guarantee.}
+\endgroup

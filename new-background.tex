@@ -1,17 +1,156 @@
-\subsection{\red{Training-Time Collaborative Detection}}
+\subsection{\red{Detector Retraining and Adaptation}}
 
-\red{In conventional federated learning, clients retain local data while jointly building or updating a base model~\cite{federated_learning,Fedprox,ditto2021}. Recent NIDS systems follow this training-time pattern across detector designs~\cite{pourahmadi2023fedoe,mao2025fedinnid}. For example, Entente jointly trains graph-based detectors from distributed network logs~\cite{xu2026entente}. Federated tree methods likewise build their base models during collaboration~\cite{federboost,dpfedtree_ccs22}. Thus, these methods require local data while training the base detector. We instead freeze every detector before collaboration and learn only a personalized composer over its outputs.}
+\red{Federated learning coordinates parameter updates while keeping raw
+records at their owners, which suits settings in which participants retain
+training data and can run another optimization process
+~\cite{federated_learning,Fedprox,ditto2021}. Within intrusion detection,
+federated methods adapt this process to non-IID traffic and heterogeneous
+local learners~\cite{pourahmadi2023fedoe,xu2026entente}. Other recent NIDS
+methods retrain or adapt detectors to cope with scarce labels, traffic change,
+or noisy annotations; CoLD, for example, filters unreliable annotations before
+model fitting~\cite{qing2024rapier,xie2023rosetta,yang2026cold}. These methods
+address important deployment conditions, but all include detector training or
+adaptation in the collaboration. Our setting begins after the contributed
+detectors have been trained and their historical records are no longer
+available.}
 
-\red{Existing methods also adapt network-traffic classifier or detector training to specific deployment problems, such as noisy labels or network shift~\cite{qing2024rapier,xie2023rosetta,yang2026cold}. For example, CoLD filters noisy labels before training a detector~\cite{yang2026cold}. These methods modify the detector itself. We instead keep every detector frozen and learn a composer from limited current site data.}
+\subsection{\red{Pretrained Model Integration}}
 
-\subsection{\red{Frozen Model Reuse and Personalization}}
+\red{When source records disappear but their trained models remain accessible,
+pretrained-model integration provides the closest starting point. Existing
+approaches either rank a heterogeneous model zoo on current target data
+~\cite{dong2022zood} or combine pretrained models without accessing their
+source records~\cite{wei2024tgr,zhao2024modelglue}. They do not select one fixed
+detector subset under a hard aggregate budget while treating class support as
+a strict priority.}
 
-\red{Some methods reuse pretrained models when their original training data are unavailable. For example, Old Dogs learns one target classifier from pretrained source networks without using source data~\cite{old_dogs2019}. In a multiparty setting, HMR exchanges selected examples and calibrates the reused models during collaboration~\cite{wu2019hmr}. Likewise, Ma et al. keep local models frozen but send per-example representations of aligned samples to a central server~\cite{ma2023consensus}. We instead keep all detectors frozen, keep per-example outputs local, and make adoption site-specific.}
+\subsection{\red{Output-Level Ensembles and Cost-Aware Selection}}
 
-\red{Other methods first train local classifiers from current data and then learn a second-stage model. F-BIDS and Fed-MStacking follow this pattern~\cite{aouedi2023fbids,qiu2024fedmstacking}. Meanwhile, personalized federated learning updates base models during collaboration~\cite{fedfomo2021,ditto2021}. We instead start from detectors frozen before collaboration and train only the composer.}
+\red{Once model outputs are available, stacked generalization can train a
+downstream classifier over them~\cite{wolpert1992stacked}. In security, SIRAJ
+learns a common representation from heterogeneous malicious-entity detectors
+~\cite{thirumuruganathan2022siraj}, while Fed-MStacking trains a global
+meta-classifier from heterogeneous local predictions in a missing-label
+setting~\cite{qiu2024fedmstacking}. A separate line studies cost-aware
+inference: SPIREL learns a per-item policy that trades off model invocations
+and classification utility~\cite{birman2022spirel}. These approaches either
+combine outputs or control per-item cost, but they do not screen detectors and
+return one fixed subset under a hard aggregate budget. \Fname makes this
+subset decision before fitting one shared classifier over the selected
+outputs.}
 
-\subsection{\red{Protected Collaboration and Local Adoption}}
+\subsection{\red{Local Privacy for Prediction Uploads}}
 
-\red{The two stages raise different questions. During candidate construction, keeping current site data local does not protect the composer gradient sent by each site. We therefore use secure aggregation so that the coordinator receives only the aggregate gradient and no individual gradient in plaintext when sites do not collude with it~\cite{bonawitz2017secureaggregation}. By comparison, FedDef perturbs training inputs to reduce gradient-reconstruction leakage in federated NIDSs~\cite{chen2023feddef}. Moreover, differential privacy limits how much the output distribution can change between neighboring datasets~\cite{dwork2006calibrating}. However, our protocol provides neither differential privacy nor protection against inference from the aggregates.}
+\red{Prediction outputs can reveal information about their inputs, so a
+privacy guarantee must identify both where randomization occurs and which
+fields it covers. PrivateKT perturbs locally produced predictions before
+sending them for knowledge transfer~\cite{qi2023privatekt}. Differentially
+private federated trees instead protect statistics exchanged while training a
+new model~\cite{dpfedtree_ccs22}. Because \Fname uploads selected detector
+scores to fit a shared classifier while treating labels as public, we
+specialize the local model of Duchi et al.~\cite{duchi2013localprivacy} to this
+release.}
 
-\red{Deployment authorization begins only after construction ends. When old training data are unavailable or do not match the target distribution, Active Comparison uses new labels to compare a fixed baseline and challenger~\cite{sawade2012activecomparison}. Separately, Learn Then Test evaluates prespecified risk hypotheses on independent calibration data~\cite{angelopoulos2025ltt}. We likewise freeze the candidate before using audit data, but couple this decision to the preceding example-local construction stage and bound excess risk relative to each site's audited incumbent. Existing protection and comparison mechanisms therefore address the two stages separately rather than the complete post-training deployment contract.}
+{\color{red}
+\begin{definition}[Label-conditional local differential privacy]
+\label{def:local_dp}
+For a fixed public label $y$, a client applies a randomized mechanism
+$\mathcal M_y$ to the feature vector $x$. The upload
+$\mathcal R(x,y)=(\mathcal M_y(x),y)$ satisfies label-conditional
+$(\epsilon,0)$-local differential privacy if, for every fixed $y$, every pair
+$x,x'$, and every measurable output set $\mathcal O$,
+\begin{equation}
+\Pr[\mathcal M_y(x)\in\mathcal O]
+\le e^{\epsilon}\Pr[\mathcal M_y(x')\in\mathcal O].
+\label{eq:local_dp_definition}
+\end{equation}
+The definition therefore compares records with the same public label and
+protects only the randomized, feature-derived output.
+\end{definition}
+}
+
+\red{To instantiate Definition~\ref{def:local_dp}, let a deterministic score
+map $g$ have replacement sensitivity
+\begin{equation}
+\Delta_1(g)=\sup_{x,x'}\lVert g(x)-g(x')\rVert_1.
+\label{eq:local_l1_sensitivity}
+\end{equation}
+Adding independent noise
+$\eta_k\sim\operatorname{Lap}(0,\Delta_1(g)/\epsilon)$ to every coordinate
+satisfies Definition~\ref{def:local_dp}~\cite{dwork2006calibrating}. If one
+record releases blocks with parameters $\epsilon_1,\ldots,\epsilon_s$,
+sequential composition gives parameter $\sum_{i=1}^{s}\epsilon_i$. Under
+one-record replacement, releases derived from unchanged records do not add to
+this privacy parameter.}
+
+\red{In \Fname, this mechanism applies only to the selected detector-score
+blocks. Theorem~\ref{thm:local_score_privacy} therefore proves
+label-conditional local privacy for the score upload; it does not protect
+calibration, labels, detector parameters, or the complete protocol.}
+
+\subsection{\red{Capability Comparison}}
+
+\red{Table~\ref{tab:related_comparison} summarizes the closest methods along
+eight concrete capabilities. The integration columns describe whether a
+method accepts frozen heterogeneous models and stacks their outputs. The
+selection columns describe whether it screens detectors on current data and
+returns one fixed set under a hard budget while preserving attainable class
+support as a strict priority. The final column records whether predictions are
+randomized locally before upload.}
+
+\begin{table*}[t]
+\centering
+\caption{\red{Comparison with recent related methods. Here, \fullmark denotes direct support, \partialmark related support, and \emptymark no support.}}
+\label{tab:related_comparison}
+\footnotesize
+\renewcommand{\arraystretch}{0.98}
+\setlength{\tabcolsep}{2.6pt}
+\color{red}
+\begin{tabularx}{\textwidth}{L{2.30cm}*{8}{>{\centering\arraybackslash}X}}
+\toprule
+\multirow{2}{*}{\textbf{Method}}
+& \multicolumn{3}{c}{\textbf{Model Integration}}
+& \multicolumn{4}{c}{\textbf{Subset Selection}}
+& \multicolumn{1}{c}{\textbf{Privacy}} \\
+\cmidrule(lr){2-4}\cmidrule(lr){5-8}\cmidrule(lr){9-9}
+& \textbf{Frozen Models}
+& \textbf{Heterogeneous}
+& \textbf{Score Stacking}
+& \textbf{Current Screening}
+& \textbf{Fixed Set}
+& \textbf{Hard Budget}
+& \textbf{Class Priority}
+& \textbf{Score LDP} \\
+\midrule
+SIRAJ~\cite{thirumuruganathan2022siraj}
+& \fullmark & \fullmark & \fullmark
+& \emptymark & \emptymark & \emptymark & \emptymark & \emptymark \\
+PrivateKT~\cite{qi2023privatekt}
+& \emptymark & \emptymark & \partialmark
+& \emptymark & \emptymark & \emptymark & \emptymark & \fullmark \\
+\rowcolor{RWStripe}
+SPIREL~\cite{birman2022spirel}
+& \fullmark & \fullmark & \partialmark
+& \emptymark & \partialmark & \partialmark & \emptymark & \emptymark \\
+ZooD~\cite{dong2022zood}
+& \fullmark & \fullmark & \partialmark
+& \fullmark & \fullmark & \partialmark & \emptymark & \emptymark \\
+\rowcolor{RWStripe}
+Fed-MStacking~\cite{qiu2024fedmstacking}
+& \emptymark & \fullmark & \fullmark
+& \emptymark & \emptymark & \emptymark & \emptymark & \emptymark \\
+\rowcolor{RWThis}
+\textbf{\Fname}
+& \fullmark & \fullmark & \fullmark
+& \fullmark & \fullmark & \fullmark & \fullmark & \fullmark \\
+\bottomrule
+\end{tabularx}
+\end{table*}
+
+\red{A partial mark denotes related but non-equivalent functionality. ZooD's
+fixed top-$K$ rule is budget-like, but it does not impose an aggregate cost
+limit. SPIREL incorporates cost into a per-item policy rather than returning
+one fixed detector set, while PrivateKT aggregates randomized predictions
+instead of fitting a fixed score stacker. Fed-MStacking addresses missing
+labels without treating class support as a strict selection priority. These
+distinctions motivate the ordered selection problem formalized next.}
