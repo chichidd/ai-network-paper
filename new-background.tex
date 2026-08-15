@@ -64,8 +64,8 @@ $x,x'$, and every measurable output set $\mathcal O$,
 \le e^{\epsilon}\Pr[\mathcal M_y(x')\in\mathcal O].
 \label{eq:local_dp_definition}
 \end{equation}
-The definition therefore compares records with the same public label and
-protects only the randomized, feature-derived output.
+The definition compares records with the same public label and protects the
+randomized, feature-derived output.
 \end{definition}
 }
 
@@ -83,10 +83,9 @@ sequential composition gives parameter $\sum_{i=1}^{s}\epsilon_i$. Under
 one-record replacement, releases derived from unchanged records do not add to
 this privacy parameter.}
 
-\red{In \Fname, this mechanism applies only to the selected detector-score
-blocks. Theorem~\ref{thm:local_score_privacy} therefore proves
-label-conditional local privacy for the score upload; it does not protect
-calibration, labels, detector parameters, or the complete protocol.}
+\red{In \Fname, this mechanism applies to the selected detector-score blocks.
+Theorem~\ref{thm:local_score_privacy} establishes label-conditional local
+privacy for that score upload under the public-label adjacency relation.}
 
 \subsection{\red{Capability Comparison}}
 

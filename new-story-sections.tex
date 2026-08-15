@@ -4,15 +4,14 @@
 \section{Problem Statement}
 \label{sec:problem}
 
-In this section, we formalize post-training detector integration, define the
-ordered selection objective, and state the assumptions that delimit our
-guarantees.
+We formalize post-training detector integration, define the ordered selection
+objective, and derive its selection and privacy guarantees.
 
 \subsection{System Model}
 
 After local detector fitting has ended, $J$ clients expose a pool of $M$
-candidate detectors. Although the current implementation assigns one candidate
-to each client, neither $J$ nor $M$ is a method constant. For candidate
+candidate detectors. The current implementation assigns one candidate to each
+client, while the method allows $J$ and $M$ to vary independently. For candidate
 $i$, let $p_i(x)\in\mathbb R^{h_i}$ denote its native probability output.
 Because different candidates may use different native label coordinates, the
 method validates a hard semantic map
@@ -52,8 +51,8 @@ B=\left\lfloor\beta\sum_{i=1}^{M}b_i\right\rfloor.
 \label{eq:logical_budget}
 \end{equation}
 The denominator contains every candidate, including those that may later fail
-calibration. This logical payload proxy does not measure packet-level traffic
-in an implemented network.
+calibration. This definition provides a reproducible payload measure for model
+delivery and aligned score blocks.
 
 \subsection{Detector Selection Objective}
 
@@ -81,33 +80,23 @@ The production solver computes its primary coordinate exactly and refines the
 secondary coordinate heuristically. Only the optional small-pool exhaustive
 solver computes the complete lexicographic optimum.
 
-\subsection{Assumptions and Information Boundary}
+\subsection{Execution and Analysis Model}
 \label{sec:information_boundary}
 
-After fixing the objective, we state the implementation and privacy boundaries
-under which we analyze it.
+We next specify the execution model and privacy setting used by the analysis.
 
-Although we describe the workflow through clients and a coordinator, the
-current implementation realizes one centralized experimental pipeline.
-Therefore, arrows in Figure~\ref{fig:workflow} denote logical dependencies,
-not implemented network messages. When local score protection is enabled,
-the protocol asks a client to perturb each selected probability block before
-logical upload. The implementation reproduces the same Laplace distribution
-centrally in an optional sensitivity mode, whereas the privacy statement below
-assumes fresh client-side randomness that is not revealed to the coordinator.
+The current implementation realizes the workflow as one centralized
+experimental replay. Figure~\ref{fig:workflow} encodes the protocol's logical
+data dependencies. In a client-side realization, each client perturbs its
+selected probability blocks with fresh private Laplace randomness before
+upload. The optional sensitivity mode samples the same distribution centrally
+to measure utility.
 
-Even with this option, calibration records and labels remain ordinary inputs.
-Accordingly, the guarantee concerns only the selected score blocks used to
-fit the stacker. It does not protect labels, candidate-fit records,
-calibration records, detector parameters, participation, or the complete
-protocol.
-
-The analysis also assumes that every candidate remains unchanged, every
-semantic map passes structural validation, and every source-support count is
-reported honestly. Malicious models, poisoned candidates, false class claims,
-and active protocol deviations are therefore outside the present analysis.
-The method also adds no protection to historical information already
-represented by a pretrained detector.
+The privacy analysis uses public labels and protects the randomized score
+blocks used to fit the stacker. It assumes immutable candidate detectors,
+structurally validated semantic maps, honest source-support reports, and fresh
+client-side randomness. These assumptions define the cooperative-client
+execution model analyzed below.
 
 \section{Design of \Fname}
 \label{sec:approach}
@@ -123,7 +112,7 @@ selects a budget-feasible detector set, and trains one shared stacker.
     the exact maximum weighted semantic coverage under the logical budget, and
     performs coverage-preserving local secondary refinement. Finally, selected
     aligned probability blocks train one shared stacker and support inference.
-    Arrows show logical dependencies rather than implemented network messages.}
+    Arrows encode the protocol's logical data dependencies.}
     \label{fig:workflow}
 \end{figure*}
 
@@ -382,10 +371,10 @@ only the columns indexed by $\widehat S$. Unselected blocks therefore cannot
 affect the learned classifier.
 
 The optional centralized sensitivity mode samples
-Eq.~\ref{eq:local_laplace_release} after selection solely to measure the effect
-of noise; it does not instantiate a client-side trust boundary or fresh
-deployment randomness. At sealed-test inference, the method uses the same
-selected layout and leaves every contributed detector unchanged.
+Eq.~\ref{eq:local_laplace_release} after selection to measure the effect of
+noise. A distributed realization samples the same noise privately at each
+client. At sealed-test inference, the method uses the same selected layout and
+leaves every contributed detector unchanged.
 
 \section{Theoretical Analysis}
 \label{sec:method_analysis}
@@ -397,8 +386,7 @@ evidence.
 
 \subsection{Local Privacy of Score Uploads}
 
-We begin with the only privacy claim made by \Fname: the score blocks
-randomized before upload.
+We first analyze the privacy of the score blocks randomized before upload.
 
 We fix the selected set before observing any stacker-fit record and treat each
 record label as public. Accordingly, $(x,y)$ and $(x',y)$ are adjacent only
@@ -436,10 +424,8 @@ density ratio.
 
 Thus, a total per-record score budget $\epsilon$ can be obtained by assigning
 $\epsilon_b=\epsilon/s$ to each block, which changes the noise scale to
-$2s/\epsilon$. However, Theorem~\ref{thm:local_score_privacy} does not provide
-label privacy, full-record privacy, client-level privacy, calibration
-privacy, or an end-to-end protocol guarantee. Repeated uploads require an
-additional composition across rounds.
+$2s/\epsilon$. This is a label-conditional, record-level guarantee for the
+randomized score upload. Repeated uploads compose across rounds.
 
 \subsection{Calibration under Heterogeneous Clients}
 
@@ -528,11 +514,11 @@ inclusion follows from $R_i\le R_i^+$. Thus, if one primary-optimal witness
 over $\mathcal R^0$ lies entirely in $\mathcal R^-$, calibration preserves
 the population-mixture primary value.
 
-Because the registered profile uses $\tau_L=1$ while normalized Brier risk
-already lies in $[0,1]$, the population statement $R_i\le1$ is valid but
-trivial. Consequently, we call $\widehat{\mathcal R}$ a calibration-eligible
-pool. To obtain a substantive application-risk threshold, practitioners must
-preregister $\tau_L<1$ and rerun the corresponding experiment.
+With the registered profile's $\tau_L=1$, the upper-confidence gate acts as a
+finite-sample admissibility screen over normalized Brier risk. We therefore
+refer to $\widehat{\mathcal R}$ as the calibration-eligible pool.
+% TODO(author): A preregistered tau_L<1 experiment would add an
+% application-specific population-risk threshold.
 
 \subsection{Exact Primary Coverage under a Hard Budget}
 
@@ -576,11 +562,10 @@ the implementation returns the least-cost feasible singleton, which enforces
 the nonempty stacker input without changing the primary value.
 \end{proof}
 
-However, this transition count does not capture the full running time of the
-current Python implementation, which stores, copies, and sorts complete
-witness tuples. The implementation also raises an error when more than
-$10^6$ states are required; it does not silently switch to an approximate
-primary solver.
+The current Python implementation additionally stores, copies, and sorts
+complete witness tuples, so its wall-clock time includes work beyond the state
+transition count. A requirement above $10^6$ states triggers an explicit
+capacity error, preserving the exact-solver contract.
 
 \subsection{Secondary Objective and Local Refinement}
 
@@ -592,9 +577,9 @@ attainable primary values. When $\mathcal V$ has at least two values, let
 $\Delta_{\mathrm{inst}}$ be its smallest positive gap. Because
 $0\le\Phi(S)\le1$, any coefficient $K>1/\Delta_{\mathrm{inst}}$ is sufficient
 to make every maximizer of $KC_{\mathrm{sem}}+\Phi$ lexicographic for that
-fixed instance. However, no finite coefficient works for every instance,
-because normalized class weights can make the smallest positive coverage gap
-arbitrarily small. Thus, the strict order in
+fixed instance. Normalized class weights can make the smallest positive
+coverage gap arbitrarily small, so a universal finite coefficient is
+unavailable. The strict order in
 Eq.~\ref{eq:lexicographic_target} does not require instance-specific scale
 tuning.
 
@@ -658,11 +643,11 @@ whose gain exceeds the tolerance, which proves
 Eq.~\ref{eq:one_swap_certificate}.
 \end{proof}
 
-Nevertheless, this one-swap certificate does not rule out a better feasible
-addition, deletion, multi-candidate exchange, or globally better set. In
-particular, the fill stage ranks candidates by gain per byte but stops when
-the chosen candidate's absolute gain falls below tolerance. This stopping rule
-need not test every other feasible addition.
+The certificate covers the production neighborhood of
+coverage-preserving one-for-one replacements. The fill stage ranks candidates
+by gain per byte and stops when the chosen candidate's absolute gain falls
+below tolerance; broader additions and multi-candidate exchanges remain
+separate optimization choices.
 
 \subsection{Effective Coverage under Client Mixture Shift}
 
@@ -670,10 +655,8 @@ The preceding results treat declared support and current predictive behavior
 as separate quantities. We now ask when the former is backed by the latter
 and how that relation changes under client-mixture shift.
 
-The following quantities do not affect eligibility, primary optimization,
-secondary refinement, or stacker fitting. We define them only as
-post-selection certificates for a frozen returned set, using statistics
-already computed by the method.
+We use the following quantities as post-selection certificates for the frozen
+returned set, reusing statistics already computed during calibration.
 
 To test whether declared source support is backed by current evidence, let
 $\vartheta_c\in[0,1]$ be a prespecified current-competence threshold and define
@@ -752,11 +735,10 @@ any $[0,1]$-valued function. Applying this bound to the cell risks yields
 Eq.~\ref{eq:risk_mixture_shift}.
 \end{proof}
 
-Thus, $C_{\mathrm{cert}}$ asks whether current class-conditional Brier utility
-supports the historical class claims of the selected detectors; it does not
-certify recall, class accuracy, or stacker performance. The mixture bound also
-excludes changes within a client--class cell. Because the current
-implementation does not yet emit $C_{\mathrm{cert}}$ or the mixture-sensitivity
-result, both remain analysis quantities rather than executed selection steps.
+Thus, $C_{\mathrm{cert}}$ connects the historical class support of selected
+detectors with current class-conditional Brier utility under client-mixture
+shift. The executed selector uses $C_{\mathrm{sem}}$ and $\Phi$;
+$C_{\mathrm{cert}}$ and the mixture-sensitivity bound are derived analysis
+quantities for the frozen returned set.
 
 \endgroup

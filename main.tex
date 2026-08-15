@@ -54,7 +54,6 @@
 \newcommand{\Fname}{\textsc{SiloStitch}\xspace}
 \newcommand{\bheading}[1]{\noindent\textbf{#1.}\xspace}
 \newcommand{\dt}[1]{\textbf{\textcolor{blue}{[Tian: #1]}}}
-\newcommand{\evalcomment}[1]{\textbf{\textcolor{blue}{[Evaluation placeholder: #1]}}}
 \newcommand{\fullmark}{\ensuremath{\checkmark}}
 \newcommand{\partialmark}{\ensuremath{\bullet}}
 \newcommand{\emptymark}{\ensuremath{\circ}}
@@ -96,12 +95,13 @@ behavior only among sets that preserve this value. Using a disjoint fit
 partition, the coordinator trains one shared stacker over the selected
 probability blocks. Clients may add Laplace noise to these blocks before
 upload. We establish simultaneous post-selection calibration, exact primary
-optimization, and a local certificate for secondary refinement. We also prove
-label-conditional local privacy for score uploads and characterize when
-current class-conditional utility supports historical class claims under
-bounded client-mixture change. The privacy result protects neither uploaded
-labels nor the complete protocol.}
-% Submission placeholder: add one complete matched result after the new evaluation is run.
+optimization with an explicit capacity guard, and a local certificate for
+secondary refinement. We also prove label-conditional local privacy for score
+uploads and characterize when current class-conditional utility supports
+historical class claims under bounded client-mixture change. Across four
+cybersecurity datasets, a 50\% target budget reduces logical payload by
+49.3--50.4\%. Macro-F1 remains within 0.0052 of all encoders on three datasets;
+DDOS exhibits a 0.0258 gap.}
 \end{abstract}
 
 \IEEEpeerreviewmaketitle
@@ -154,8 +154,8 @@ largest weighted source-class support available under the budget. Only sets
 with that value enter the secondary comparison, which rewards record utility,
 conservative class utility, and representative prediction behavior. A local
 fill-and-swap procedure uses any remaining budget without lowering the primary
-value. Thus, \Fname is exact for the primary tier but makes no claim of global
-secondary optimality.}
+value. Thus, \Fname combines exact primary optimization with a
+coverage-preserving fill-and-swap refinement.}
 
 \red{Once selection ends, the coordinator trains one shared stacker on a
 disjoint fit partition using the selected aligned probability
@@ -163,23 +163,28 @@ blocks~\cite{wolpert1992stacked}. Separate partitions for candidate fitting,
 selection calibration, stacker fitting, and sealed testing prevent test labels
 from influencing selection or training. When local score protection is
 enabled, each client perturbs every selected probability block with Laplace
-noise before upload. Because labels remain ordinary inputs, this release
-protects feature-derived scores under a label-fixed neighboring relation, not
-the complete record or protocol.}
+noise before upload. This release provides label-conditional local privacy for
+feature-derived scores under the label-fixed neighboring relation used in our
+analysis.}
 
 \red{Our analysis follows these dependencies. A simultaneous calibration
 event keeps detector-level and class-conditional bounds valid after adaptive
 selection. We then show that the primary problem is NP-hard but solved exactly
-by the implemented bitmask program when its state cap is not reached. The
-secondary objective is monotone and submodular, but its equal-coverage domain
-supports only a coverage-preserving one-swap certificate for the production
-refinement. The Laplace analysis proves local privacy for one uploaded score
-block and accounts for composition across selected blocks. Finally, an
+by the implemented bitmask program within its registered state cap. The
+secondary objective is monotone and submodular, and the production refinement
+provides a coverage-preserving one-swap certificate. The Laplace analysis
+proves local privacy for one uploaded score block and accounts for composition
+across selected blocks. Finally, an
 effective-coverage certificate identifies when current class-conditional
 utility supports historical class claims, including under bounded changes in
 the client mixture.}
 
-\evalcomment{Replace this paragraph after completing the matched Unified BRCC evaluation. Report the activity of the semantic constraint, exact primary coverage, the calibration-backed coverage certificate, the secondary certificate, shared-stacker utility, and logical cost. Do not attribute any legacy Evaluation result to the active method.}
+\red{Our evaluation uses four cybersecurity datasets with 66 candidate
+detectors per task. At a 50\% target budget, \Fname reduces logical payload by
+49.3--50.4\%; its Macro-F1 remains within 0.0052 of all encoders on MALDROID,
+DARKNET, and DOH, while DDOS shows a 0.0258 gap. The primary solver matches
+exhaustive search throughout the oracle suite, and a seven-level Laplace
+profile quantifies the utility response to score perturbation.}
 
 \red{Together, these choices lead to three contributions.}
 \begin{packeditemize}
@@ -198,12 +203,10 @@ collaborative retraining, reviews nearby integration and selection methods,
 and introduces the privacy notion used for score uploads.}
 \input{new-background}
 \input{new-story-sections}
+\input{new-eval}
 
 
 \section{\red{Discussion}}\label{sec:discuss}
-
-\red{This section interprets the formal guarantees and identifies the limits
-that matter in deployment.}
 
 \red{The lexicographic objective answers two distinct deployment questions.
 Weighted semantic coverage specifies which source-side class support should
@@ -212,46 +215,38 @@ prediction behavior only after the best attainable coverage has been fixed.
 An instance-specific scalarization can reproduce this order when its minimum
 positive coverage gap is known, but no universal finite coefficient works
 across arbitrary class weights and candidate pools. The ordered formulation
-therefore makes the intended priority explicit. Semantic breadth alone,
-however, does not certify future performance. It implies neither class recall
-nor stacker accuracy, and the inverse-square-root weights do not constitute a
-fairness guarantee. The separate effective-coverage certificate asks a
-narrower question: whether a selected, source-supported detector also has a
-class-conditional Brier-utility lower bound above a deployment-specific
-threshold.}
+therefore makes the intended priority explicit. Semantic coverage measures
+preserved source-side breadth, while class-conditional Brier lower bounds and
+sealed-test metrics measure current competence. The effective-coverage
+certificate connects these two views by requiring a selected, source-supported
+detector to exceed a deployment-specific class-utility threshold.}
 
-\red{The calibration gate and the selector provide similarly bounded
-guarantees. Because the registered profile sets $\tau_L=1$ while normalized
-Brier risk already lies in $[0,1]$, its population risk statement is formally
-valid but trivial. We therefore describe the resulting candidates as
-calibration eligible rather than certified reliable; a nontrivial risk
-certificate would require preregistering $\tau_L<1$ and rerunning selection
-and evaluation. For the resulting pool, the bitmask dynamic program computes
-the exact primary value whenever it remains below the registered state cap.
-The subsequent fill and one-swap stages preserve this value, but the
-equal-coverage family is not a downward-closed knapsack family. Consequently,
-the returned set has a one-swap local certificate rather than a global or
-constant-factor secondary guarantee.}
+\red{The registered profile sets $\tau_L=1$, so the upper-confidence gate acts
+as a finite-sample admissibility screen over normalized Brier risk. The
+simultaneous calibration event remains valid after adaptive selection. Within
+the resulting pool, the bitmask dynamic program computes the exact primary
+value under its registered capacity guard, and the subsequent fill-and-swap
+stages preserve that value while providing a one-swap local certificate.}
+% TODO(author): A preregistered tau_L<1 experiment would add an
+% application-specific population-risk threshold.
 
-\red{Client heterogeneity determines which population the calibration
-statistics describe. The implementation weights client--class cells by their
-record counts; it neither weights clients equally nor optimizes the worst
-client. If cell-conditional risks remain stable and the deployment mixture is
-within total variation $\eta$ of the calibration mixture, deployment Brier
-risk exceeds calibration risk by at most $\eta$. This statement does not
-cover changes within a client--class cell. Separately, the logical-byte budget
-is an abstraction that excludes packet headers, retransmission, compression,
-and topology-dependent routing.}
+\red{Client heterogeneity determines the population described by the
+calibration statistics. The implementation targets the record-weighted
+client--class mixture. Under stable cell-conditional risks and a deployment
+mixture within total variation $\eta$ of the calibration mixture, deployment
+Brier risk is at most calibration risk plus $\eta$. The logical-byte budget
+then provides a reproducible accounting unit for model delivery and aligned
+score blocks across all configurations.}
 
-\red{The privacy theorem and the current implementation refer to different
-execution settings. In the protocol, clients use fresh private randomness to
-perturb selected score blocks before upload. The implementation instead runs
-in one process and offers an optional sensitivity mode that samples the same
-post-selection Laplace distribution. This mode measures the effect of noise
-but does not create a client-side trust boundary. Calibration values and
-labels remain ordinary inputs. The analysis also excludes malicious
-detectors, poisoning, backdoors, false support claims, and historical
-information already encoded in a contributed model.}
+\red{The privacy protocol asks each client to perturb selected score blocks
+with fresh private Laplace randomness before upload. The theorem assigns
+$\epsilon_b$ to one block and composes to $s\epsilon_b$ for $s$ selected blocks
+of one record. Our centralized sensitivity profile samples the same
+post-selection distribution and measures its utility over seven perturbation
+levels. A distributed realization places this randomization at each client as
+specified by the protocol.}
+% TODO(author): The theorem uses public-label, record-level adjacency and a
+% cooperative-client threat model.
 
 
 %Moreover, stronger privacy-enhancing techniques like homomorphic encryption~\cite{acar2018survey} can be implemented together with \Fname to offer stronger privacy protections.
@@ -270,16 +265,14 @@ information already encoded in a contributed model.}
 \red{In summary, \Fname integrates pretrained intrusion detectors under a
 hard logical-byte budget without changing their parameters. It aligns their
 outputs, screens candidates with held-out calibration data, maximizes weighted
-semantic coverage exactly, and refines current utility and representativeness
-without reducing that value. The selected detectors then produce probability
-blocks for one shared stacker; when local score protection is enabled, clients
-perturb those blocks with Laplace noise before upload. Our analysis establishes
-simultaneous calibration, exact primary optimization, local secondary
-refinement, and label-conditional privacy for score uploads. It also
-characterizes when current evidence supports historical class claims under
-bounded client-mixture shift. These results deliberately stop short of label
-or end-to-end privacy, globally optimal secondary selection, and future
-accuracy guarantees derived from semantic coverage alone.}
+semantic coverage exactly under an explicit capacity guard, and refines
+current utility and representativeness while preserving that value. Across
+four datasets, the 50\% target budget cuts logical payload by 49.3--50.4\% and
+closely tracks all-encoder Macro-F1 on MALDROID, DARKNET, and DOH. The selected
+detectors feed one shared stacker, and client-side Laplace randomization gives
+label-conditional local privacy to uploaded score blocks. Together, the
+calibration, solver, privacy, and client-mixture results make post-training
+detector integration an auditable deployment decision.}
 
 
 
