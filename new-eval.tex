@@ -7,35 +7,36 @@
 \section{Evaluation}
 \label{sec:experiments}
 
-We evaluate whether \Fname achieves its intended deployment trade-off:
-preserve training-class support first, and then retain predictive quality
-under a hard communication budget. Five questions organize the evaluation:
+We evaluate whether \Fname preserves attack knowledge under a hard
+communication budget while retaining predictive quality. We organize the
+evaluation around five questions:
 \begin{packeditemize}
-    \item \textbf{RQ1: Detection quality under a budget.} How much
-    Macro-F1 remains as the shared communication volume is reduced?
-    \item \textbf{RQ2: Client heterogeneity.} How do fixed and controlled
-    client label distributions affect usable training splits, class support,
-    and detection quality?
-    \item \textbf{RQ3: Design choices.} Which selection signals, semantic
-    settings, and learning backends influence the result?
-    \item \textbf{RQ4: Privacy--utility trade-off.} How much detection
-    quality remains as Laplace perturbation becomes stronger?
-    \item \textbf{RQ5: Scalability and cost.} How do selection time and
+    \item \textbf{RQ1: Detection quality under a budget.} How much predictive
+    quality does the shared detector retain as communication decreases?
+    \item \textbf{RQ2: Client label heterogeneity.} How do different client
+    label distributions affect usable training partitions, class support, and
+    detection quality?
+    \item \textbf{RQ3: Selection signals and learners.} Which selection
+    signals, semantic settings, and learning backends change the result?
+    \item \textbf{RQ4: Score randomization.} How much detection quality
+    remains as Laplace perturbation becomes stronger?
+    \item \textbf{RQ5: Scalability and replay cost.} How do selection time and
     communication grow with the deployment?
 \end{packeditemize}
 
 \subsection{Experimental Setup}
 
 \bheading{Datasets} We use four multiclass cybersecurity datasets:
-CIC-DDoS2019 (DDoS)~\cite{cicddos19}, CICMalDroid2020
-(MalDroid)~\cite{maldroid}, CIC-Darknet2020
-(Darknet)~\cite{darknet}, and CIRA-CIC-DoHBrw-2020
-(DoH)~\cite{DoH}. Each task contains 66 clients and therefore 66 candidate
-detectors. Table~\ref{tab:eval-datasets} summarizes the evaluation scale.
+CIC DDoS2019 (DDoS)~\cite{cicddos19}, CICMalDroid2020
+(MalDroid)~\cite{maldroid}, CIC Darknet2020
+(Darknet)~\cite{darknet}, and CIRA CIC DoHBrw 2020
+(DoH)~\cite{DoH}. Each task contains 66 clients and 66 candidate detectors.
+Table~\ref{tab:eval-datasets} summarizes the evaluation scale.
 
 \begin{table*}[t]
     \centering
-    \caption{Datasets and evaluation scale.}
+    \caption{We evaluate four datasets with different sample, feature, and
+    class counts.}
     \label{tab:eval-datasets}
     \small
     \begin{tabular}{lrrrr}
@@ -51,61 +52,59 @@ detectors. Table~\ref{tab:eval-datasets} summarizes the evaluation scale.
 \end{table*}
 
 \bheading{Protocol} We divide each training pool into disjoint 60\%, 10\%,
-and 30\% partitions for local detector training, model-selection validation,
-and shared-aggregator training. The held-out test set cannot influence model
-eligibility, selection, or aggregator fitting. Unless stated otherwise, we
-use five repeated splits, LightGBM~\cite{lightgbm} for both local detectors
-and the global aggregator, a 50\% communication budget, minimum source
-support $n_{\min}=2$, inverse-square-root class weights, and equal weights
-for the three secondary selection signals.
+and 30\% partitions for local detector training, selection validation, and
+shared stacker training. We reserve the test set until both selection and
+stacker fitting have finished. Unless stated otherwise, we use five repeated
+splits, LightGBM~\cite{lightgbm} for local detectors and the shared stacker, a
+50\% communication budget, minimum source support $n_{\min}=2$, class weights
+that are inversely proportional to the square root of class frequency, and
+equal weights for the three secondary selection signals.
 
-\bheading{Comparison methods} The \emph{full pool} retains all 66 models and
-defines the 100\% communication point. \emph{Random selection} samples a
-feasible set and averages 20 fixed draws within each data split.
-\emph{Utility-only ranking} favors detectors with high stand-alone validation
-quality. \Fname first maximizes weighted training-class support
-and then refines predictive quality without reducing that support. A matched
-ablation later removes only the class-support priority while keeping the same
-secondary search.
+\bheading{Comparison methods} We compare \Fname with three reference rules
+under the same budget. The \emph{full pool} retains all 66 models and defines
+the 100\% communication point. The \emph{random rule} samples a feasible set
+and averages 20 fixed draws within each data split. The \emph{current utility
+rule} ranks detectors by their individual validation quality. By contrast,
+\Fname first maximizes weighted source class support and then refines current
+predictive quality without reducing that support. We later remove only the
+source support priority while retaining the same secondary search.
 
-\bheading{Metrics and statistics} We use Macro-F1 as the main detection
-score because it gives every class equal weight. This matters for imbalanced
-security traffic: a frequent class cannot hide weak detection of a rarer
-attack class. Accuracy measures overall correctness, balanced accuracy
-averages recall across classes, and minimum shared-class recall exposes the
-weakest class that collaborating clients have in common. Weighted class
-coverage measures retained training support rather than classifier quality.
-For the DDoS privacy experiment, we also report \emph{attack leakage}: the
-fraction of predictions labeled benign that are actually attacks.
-Communication is measured as the protocol bytes defined in
-Eq.~\ref{eq:candidate_cost}.
+\bheading{Metrics and statistics} We choose macro F1 as the main detection
+score because it gives every class equal weight. In imbalanced security
+traffic, this prevents a frequent class from hiding weak detection of a rarer
+attack class. We also report accuracy for overall correctness, balanced
+accuracy for average class recall, and minimum shared class recall for the
+weakest attack class that collaborating clients have in common. We measure
+weighted class coverage separately because it describes retained training
+support rather than classifier quality. For the DDoS privacy experiment, we
+report \emph{attack leakage}, which is the fraction of predictions labeled
+benign that are actually attacks. We count communication with the protocol
+bytes defined in Eq.~\ref{eq:candidate_cost}.
 
-Unless stated otherwise, points and table entries are means with 95\%
-Student-$t$ confidence intervals over five repeated splits. Conditions are
-paired on the same split, and pre-specified comparison families use Holm
-correction. Detection scores are recomputed from the held-out confusion
-matrices.
+We report means and 95\% Student \(t\) confidence intervals over five
+repeated splits unless stated otherwise. When two conditions share a split,
+we pair their observations. We apply Holm correction within each comparison
+family fixed before analysis. We recompute every detection score from the
+reserved test confusion matrix.
 
-\bheading{Implementation} Experiments run as a single-machine federation
-replay under Linux and Python~3.9.25, using NumPy~1.26.4,
-scikit-learn~1.3.2, LightGBM~4.6.0, and
-XGBoost~\cite{xgboost}~1.4.2. We measure wall-clock time and the exact logical
-bytes exchanged by the evaluated protocol.
+\bheading{Implementation} We run the experiments as a single machine
+federation replay under Linux and Python~3.9.25. The software stack uses
+NumPy~1.26.4, Scikit Learn~1.3.2, LightGBM~4.6.0, and
+XGBoost~\cite{xgboost}~1.4.2. We record wall clock time and the logical bytes
+exchanged by the evaluated protocol.
 
-\subsection{RQ1: Detection Quality under Communication Budgets}
+\subsection{RQ1: Detection Quality under a Budget}
 
-A budgeted selector is useful only if reducing communication does not erase
-the signal needed by the shared detector. Table~\ref{tab:eval-main-results}
-therefore compares Macro-F1 at the central 50\% budget.
-Table~\ref{tab:eval-quality-retention} then tests whether this aggregate
-score hides a loss in overall correctness or in the weakest class, while
-Fig.~\ref{fig:eval-budget-utility} shows how Macro-F1 changes across the full
-budget range.
+To determine whether \Fname retains detection signal under a hard budget, we
+first compare macro F1 at the central 50\% operating point. We then inspect
+accuracy and minimum shared class recall at the same point. Finally, we trace
+macro F1 across the full budget range.
 
 \begin{table*}[t]
     \centering
-    \caption{Macro-F1 at the 50\% communication budget (mean $\pm$ 95\%
-    confidence interval over five repeated splits).}
+    \caption{The table compares macro F1 at the 50\% communication budget.
+    Values report means and 95\% confidence intervals over five repeated
+    splits.}
     \label{tab:eval-main-results}
     \small
     \setlength{\tabcolsep}{4.5pt}
@@ -113,31 +112,31 @@ budget range.
         \toprule
         Selection rule & DDoS & MalDroid & Darknet & DoH \\
         \midrule
-        Full pool                & $0.6412\pm0.0121$ & $0.8449\pm0.0123$ & $0.5972\pm0.0128$ & $0.6073\pm0.0042$ \\
-        Random selection         & $0.6079\pm0.0287$ & $0.8344\pm0.0100$ & $0.5931\pm0.0071$ & $0.6074\pm0.0028$ \\
-        Utility-only ranking     & $0.6303\pm0.0437$ & $0.8374\pm0.0132$ & $0.5921\pm0.0168$ & $0.6069\pm0.0042$ \\
-        \textbf{\Fname}          & $0.6153\pm0.0453$ & $0.8397\pm0.0121$ & $0.5953\pm0.0148$ & $0.6064\pm0.0038$ \\
+        Full pool             & $0.6412\pm0.0121$ & $0.8449\pm0.0123$ & $0.5972\pm0.0128$ & $0.6073\pm0.0042$ \\
+        Random rule           & $0.6079\pm0.0287$ & $0.8344\pm0.0100$ & $0.5931\pm0.0071$ & $0.6074\pm0.0028$ \\
+        Current utility rule  & $0.6303\pm0.0437$ & $0.8374\pm0.0132$ & $0.5921\pm0.0168$ & $0.6069\pm0.0042$ \\
+        \textbf{\Fname}       & $0.6153\pm0.0453$ & $0.8397\pm0.0121$ & $0.5953\pm0.0148$ & $0.6064\pm0.0038$ \\
         \bottomrule
     \end{tabular}
 \end{table*}
 
 \begin{table*}[t]
     \centering
-    \caption{Effect of selecting roughly half of the detectors. Score changes
-    are \Fname minus the full pool using five-split means; negative values
-    denote a decrease.}
+    \caption{The table reports the loss after \Fname selects roughly half of
+    the detectors. Each loss equals the full pool mean minus the \Fname mean
+    over five repeated splits.}
     \label{tab:eval-quality-retention}
     \small
     \setlength{\tabcolsep}{7pt}
     \begin{tabular}{@{}lrrrrr@{}}
         \toprule
-        Dataset & Macro-F1 change & Accuracy change & Weakest-recall change &
-        \makecell{Selected class\\support} & \makecell{Selected budget\\used} \\
+        Dataset & Macro F1 loss & Accuracy loss & Weakest recall loss &
+        \makecell{Selected class\\support} & \makecell{Budget\\used} \\
         \midrule
-        DDoS     & $-0.0258$ & $-0.0296$ & $-0.0094$ & 1.000 & 49.5\% \\
-        MalDroid & $-0.0052$ & $-0.0046$ & $-0.0061$ & 1.000 & 50.0\% \\
-        Darknet  & $-0.0019$ & $-0.0022$ & $-0.0019$ & 1.000 & 49.7\% \\
-        DoH      & $-0.0009$ & $-0.0001$ & $-0.0007$ & 1.000 & 50.0\% \\
+        DDoS     & $0.0258$ & $0.0296$ & $0.0094$ & 1.000 & 49.5\% \\
+        MalDroid & $0.0052$ & $0.0046$ & $0.0061$ & 1.000 & 50.0\% \\
+        Darknet  & $0.0019$ & $0.0022$ & $0.0019$ & 1.000 & 49.7\% \\
+        DoH      & $0.0009$ & $0.0001$ & $0.0007$ & 1.000 & 50.0\% \\
         \bottomrule
     \end{tabular}
 \end{table*}
@@ -145,116 +144,108 @@ budget range.
 \begin{figure*}[t]
     \centering
     \includegraphics[width=0.98\textwidth]{figures/eval_budget_utility.pdf}
-    \caption{Detection quality as communication changes. Lines follow three
-    selection rules at the 25\%, 50\%, and 75\% budgets; the star denotes
-    all 66 models. Error bars are 95\% confidence intervals over five
-    repeated splits. Each dataset uses its own vertical scale.}
+    \caption{The figure tracks detection quality as communication changes.
+    Lines show three selection rules at the 25\%, 50\%, and 75\% budgets.
+    The star marks the full pool of 66 models. Error bars show 95\%
+    confidence intervals over five repeated splits. Each dataset uses its own
+    vertical scale.}
     \label{fig:eval-budget-utility}
 \end{figure*}
 
-At the 50\% target, \Fname retains 49.5--50.0\% of full-pool communication.
-Its Macro-F1 is within 0.0052 of the full pool on MalDroid, Darknet, and DoH;
-the DDoS gap is 0.0258. Figure~\ref{fig:eval-budget-utility} further shows
-that more models do not guarantee a monotone gain: MalDroid improves as the
-budget grows, whereas the other datasets fluctuate within comparatively
-narrow ranges.
+At the 50\% target, \Fname uses from 49.5\% to 50.0\% of full pool
+communication. It keeps macro F1 within 0.0052 of the full pool on MalDroid,
+Darknet, and DoH. DDoS shows the larger gap of 0.0258. As
+Fig.~\ref{fig:eval-budget-utility} shows, adding models does not always produce
+a monotonic gain. MalDroid improves as the budget grows, whereas the other
+datasets fluctuate within narrower ranges.
 
-The broader metric view leads to the same conclusion. On MalDroid, Darknet,
-and DoH, selecting half of the detectors changes accuracy by at most 0.0046
-and weakest-class recall by at most 0.0061. DDoS has the larger accuracy
-change (0.0296), but its weakest-class recall changes by only 0.0094. Darknet
-also exposes a task-level bottleneck that Macro-F1 alone conceals: the
-weakest shared class has recall 0.0077 with all detectors and 0.0058 after
-selection. The near-zero value is therefore already present before the
-communication budget is imposed.
+Across MalDroid, Darknet, and DoH, selecting half of the detectors changes
+accuracy by at most 0.0046 and minimum shared class recall by at most 0.0061.
+On DDoS, \Fname loses 0.0296 accuracy but only 0.0094 minimum shared class
+recall. On Darknet, even the full pool reaches only 0.0077 recall on the
+weakest shared class, compared with 0.0058 after selection. Both
+configurations therefore reveal the same Darknet bottleneck.
 
-DDoS reveals why class support and detection score must be measured
-separately. At the 25\% and 50\% budgets, individual-score ranking obtains
-higher Macro-F1 but retains only 0.774 and 0.910 of the attainable weighted
-class support. \Fname attains 1.0 support at both budgets. Thus, ordered
-selection converts a communication limit into an explicit class-support
-guarantee while keeping the detection score close to the full pool on three
-of the four tasks.
+DDoS also shows why the evaluation separates class support from detection
+score. At the 25\% and 50\% budgets, the current utility rule obtains higher
+macro F1 but retains only 0.774 and 0.910 of the attainable weighted support.
+At both budgets, \Fname attains the full support value of 1.0. \Fname
+therefore protects attainable attack class support while keeping the
+detection score close to the full pool on three of the four tasks.
 
-\subsection{RQ2: Robustness to Client Heterogeneity}
+\subsection{RQ2: Client Label Heterogeneity}
 
-Budgeted collaboration matters most when clients observe different attack
-classes. We study this in two complementary ways. The archived-layout study
-(E3-A) keeps the original DDoS and Darknet client assignments and repeats the
-train/validation split. The controlled study (E3-B) progressively
-concentrates labels with Dirichlet parameters
-$\alpha\in\{10,1,0.5,0.1\}$, alongside an IID setting. Every constructed
-partition must still provide at least two local-training classes per client,
-so the client detectors remain genuine multiclass models.
+When clients observe different attack classes, we evaluate both naturally
+occurring and controlled label distributions. To preserve the original
+deployment structure, we first keep the archived DDoS and Darknet client
+assignments and repeat only the data split. To isolate label imbalance, we
+then draw client partitions with Dirichlet parameters
+$\alpha\in\{10,1,0.5,0.1\}$ and compare them with an independent and
+identically distributed allocation. We require every accepted partition to
+provide at least two local training classes to each client so that each local
+detector remains a multiclass model.
 
 \begin{figure*}[t]
     \centering
     \includegraphics[width=0.98\textwidth]{figures/eval_heterogeneity.pdf}
-    \caption{Detection under controlled client-label heterogeneity.
-    (a) counts usable splits among ten attempts at each level; (b) measures
-    the resulting client-label imbalance, where larger JSD means more uneven
-    label mixtures; and (c--d) report Macro-F1 at the 50\% communication
-    budget. Confidence intervals use the usable splits ($n=10$, or $n=5$
-    for MalDroid at $\alpha=1$).}
+    \caption{The figure shows how controlled client label imbalance changes
+    feasibility and detection. Panel (a) counts usable partitions among ten
+    attempts. Panel (b) measures label imbalance with Jensen Shannon
+    divergence. Panels (c) and (d) report macro F1 at the 50\% budget. Error
+    bars use the accepted partitions, with ten runs except for five MalDroid
+    runs at $\alpha=1$.}
     \label{fig:eval-heterogeneity}
 \end{figure*}
 
-The controlled construction reaches the full heterogeneity range on Darknet:
-all ten partitions are valid at every level, and measured divergence rises
-from 0.0008 under IID allocation to 0.3516 at $\alpha=0.1$. MalDroid
-supports ten IID and ten $\alpha=10$ partitions, five $\alpha=1$
-partitions, and none of the $\alpha=0.5$ or $0.1$ attempts meets the same
-multiclass rule. This reveals a concrete data-regime boundary: a small
-five-class training pool cannot always be divided among 66 clients while
-preserving two local classes.
+On Darknet, all ten partitions remain usable at every level, while measured
+divergence rises from 0.0008 under the balanced allocation to 0.3516 at
+$\alpha=0.1$. On MalDroid, all ten balanced and all ten $\alpha=10$
+partitions remain usable, but only five $\alpha=1$ partitions pass the same
+rule. None of the $\alpha=0.5$ or $0.1$ attempts can divide this smaller five
+class training pool among 66 clients while retaining two classes per client.
 
-Within the valid range, detection remains stable. At the 50\% budget,
-Darknet Macro-F1 spans 0.5895--0.5976 as divergence grows, and MalDroid spans
-0.8328--0.8375. The fixed assignments show the same budget response: from
-25\% to 75\%, Darknet Macro-F1 rises from 0.6162 to 0.6290 and its
-weakest-class recall from 0.0452 to 0.0964; DDoS changes from 0.6039 to
-0.6104 and from 0.0568 to 0.0773, respectively. Together, the two views
-separate the effects: controlled partitions vary label imbalance, while fixed
-assignments reveal how additional budget reaches the weakest class.
+Within the usable range, Darknet macro F1 stays between 0.5895 and 0.5976 at
+the 50\% budget as imbalance grows. MalDroid stays between 0.8328 and 0.8375.
+Under the original assignments, a larger budget helps the weakest class more
+clearly. As the budget rises from 25\% to 75\%, Darknet macro F1 grows from
+0.6162 to 0.6290 and minimum shared class recall grows from 0.0452 to 0.0964.
+Over the same range, DDoS macro F1 changes from 0.6039 to 0.6104 and minimum
+shared class recall changes from 0.0568 to 0.0773.
 
-The fixed-layout and controlled experiments also provide a targeted ablation
-of the class-support objective. Across 30 archived and 225
-controlled matched comparisons, removing this priority changes neither the
-selected set nor Macro-F1, minimum class recall, communication, or attained
-class support. Increasing imbalance makes the coverage rule relevant, while
-the quality-based refinement already reaches the same maximum in these
-conditions. In these experiments, the ordered objective preserves attainable
-class support while matching the refinement's selected sets, detection
-quality, and communication.
+We then remove the source support priority while retaining the same secondary
+search. Across 30 comparisons with the original assignments and 225
+comparisons with controlled assignments, both versions choose the same set
+and obtain the same macro F1, minimum class recall, communication, and
+attained support. In these evaluated layouts, the secondary refinement
+already reaches the maximum attainable support.
 
-\subsection{RQ3: Which Design Choices Influence Detection?}
+\subsection{RQ3: Selection Signals and Learners}
 
-Once maximum class support is fixed, secondary signals decide among the
-remaining feasible model sets. We remove individual detector quality,
-class-aware quality, and prediction diversity one at a time and measure the
-paired change from the full design. Every variant still attains the maximum
-class support, so the comparison isolates how these signals order otherwise
-feasible detector sets.
+After the primary objective fixes maximum class support, \Fname uses current
+evidence to order the remaining feasible sets. We remove individual detector
+quality, classwise quality, and prediction diversity one at a time.
+Because every variant still attains the maximum support, this comparison
+isolates how the three signals order otherwise feasible detector sets.
 
-At the 50\% budget, the paired Macro-F1 changes range from $-0.0190$ when
-individual quality is removed on DDoS to $+0.0181$ when prediction diversity
-is removed on the same dataset. The signs change across datasets and
-budgets, and no removal remains significant after Holm correction. The
-secondary signals therefore act jointly; none supplies a consistent
-stand-alone improvement across the evaluated tasks.
+At the 50\% budget, removing individual detector quality lowers DDoS macro F1
+by 0.0190. Removing prediction diversity instead raises it by 0.0181 on the
+same dataset. The direction changes across datasets and budgets. After Holm
+correction, no removal produces a statistically significant change. The three
+signals therefore work as a joint ranking rule rather than as independent
+sources of universal improvement.
 
-We also vary $n_{\min}\in\{1,2,5,10\}$ and compare inverse-square-root
-with uniform class weights on two fixed Darknet layouts and two learner
-combinations. The selected set, class coverage, Macro-F1, and minimum class
-recall remain unchanged throughout this fixed grid. In contrast, changing
-the local and global learning backends produces visible score differences,
-as Table~\ref{tab:eval-architecture} shows.
+We also vary $n_{\min}\in\{1,2,5,10\}$ and compare class weights based on the
+inverse square root of frequency with uniform weights. Across two fixed
+Darknet layouts and two learner combinations, these choices leave the
+selected set, support, macro F1, and minimum class recall unchanged. By
+contrast, the learning backends produce visible score differences, as
+Table~\ref{tab:eval-architecture} shows.
 
 \begin{table}[t]
     \centering
-    \caption{Macro-F1 across local $\rightarrow$ shared learners
-    (five-split means). XGB and LGBM denote XGBoost and LightGBM; bold marks
-    the largest mean per dataset.}
+    \caption{The table compares macro F1 across local and shared learners.
+    Values are means over five splits. Bold marks the largest mean for each
+    dataset.}
     \label{tab:eval-architecture}
     \footnotesize
     \setlength{\tabcolsep}{2.8pt}
@@ -271,91 +262,90 @@ as Table~\ref{tab:eval-architecture} shows.
     \end{tabular}
 \end{table}
 
-The highest means use LightGBM locally with XGBoost as the shared learner on
-DDoS, LightGBM at both levels on MalDroid and Darknet, and XGBoost locally
-with LightGBM shared on DoH. On DoH, the two configurations with an XGBoost
-shared learner score below LightGBM at both levels after Holm correction; the
-other Macro-F1 comparisons do not separate after correction. Learner choice
-is therefore the clearer practical tuning lever, while the tested semantic
-grid and individual secondary signals show no universal winner.
+On DDoS, LightGBM local detectors with an XGBoost shared learner obtain the
+largest mean. On MalDroid and Darknet, LightGBM obtains the largest mean at
+both levels. On DoH, XGBoost local detectors with a LightGBM shared learner
+lead by a small margin. After Holm correction, only the two DoH
+configurations with an XGBoost shared learner remain below the LightGBM
+alternatives. The learning backend is therefore the clearest practical tuning
+choice in this experiment.
 
-\subsection{RQ4: Privacy--Utility Trade-off}
+\subsection{RQ4: Score Randomization}
 
-Local score randomization is useful only if the shared detector retains
-enough predictive signal. We freeze the selected set and add independent
-Laplace noise with scale $2/\epsilon$ to each score block used to train the
-global aggregator. Smaller $\epsilon$ means stronger perturbation. This is
-the same release rule analyzed by
-Theorem~\ref{thm:local_score_privacy}; evaluation uses a common test encoding
-so that the curve isolates the effect on aggregator learning.
+To measure the utility cost of score randomization, we freeze the selected set
+and add independent Laplace noise with scale $2/\epsilon$ to every score block
+used for shared stacker training. A smaller $\epsilon$ adds stronger noise.
+Here $\epsilon$ is the privacy parameter for one released score block. Under
+the public label neighboring relation in
+Theorem~\ref{thm:local_score_privacy}, two neighboring records share a label
+and differ in one feature vector. The theorem gives label conditional record
+level local differential privacy to each released block. When one record
+contributes $s$ released blocks, sequential composition gives a total
+parameter of $s\epsilon$ for that upload. During the centralized sensitivity
+replay, we sample the same noise distribution after selection and keep the
+test encoding fixed so that the curves isolate the effect on stacker training.
 
 \begin{figure}[t]
     \centering
     \includegraphics[width=0.98\columnwidth]{figures/eval_privacy_utility.pdf}
-    \caption{Privacy--utility trade-off under Laplace score randomization.
-    Panel (a) reports aggregate detection quality; panel (b) reports attacks
-    hidden among predictions labeled benign. Larger $\epsilon$ means less
-    noise; error bars show 95\% confidence intervals over the same five DDoS
-    splits.}
+    \caption{The figure shows how Laplace score randomization changes
+    detection. Panel (a) reports macro F1. Panel (b) reports attacks hidden
+    among predictions labeled benign. Larger $\epsilon$ adds less noise.
+    Error bars show 95\% confidence intervals over the same five DDoS splits.}
     \label{fig:eval-privacy-utility}
 \end{figure}
 
-Without added noise, the selected-half and full-pool configurations obtain
-0.6153 and 0.6412 Macro-F1. At the strongest evaluated setting
-($\epsilon=1$), they obtain 0.5105 and 0.5298, respectively. Intermediate
-points fluctuate, but the broad response is clear: stronger perturbation
-reduces the detection signal available to the global learner. The total
-drop is 0.1048 for the selected half and 0.1114 for the full pool.
+Without added noise, the selected half and the full pool obtain macro F1
+scores of 0.6153 and 0.6412. At the strongest evaluated setting,
+$\epsilon=1$, they obtain 0.5105 and 0.5298. The selected half loses 0.1048,
+while the full pool loses 0.1114. Both configurations therefore retain a
+similar fraction of their original detection score as perturbation grows.
 
-The security-oriented metric reveals a sharper transition. For the selected
-half, attack leakage rises from 0.055 without noise to 0.262 at
-$\epsilon=5$ and 0.583 at $\epsilon=1$; the full pool changes from 0.056 to
-0.193 and 0.644. Thus, the strongest perturbation makes more than half of the
-predictions labeled benign correspond to attacks, even though Macro-F1
-remains above 0.5. Reporting both panels prevents the aggregate score from
-hiding this operational cost. The selected half loses 0.0066 less Macro-F1
-than the full pool over the same noise range, combining lower communication
-with a comparable privacy--utility response. Together, the theorem and these
-measurements connect the score-upload privacy parameter to its detection cost.
-% TODO(author): The theorem is label-conditional and composes across released
-% score blocks; keep the final privacy wording aligned with that statement.
+When we inspect attack leakage, the curve reveals a sharper operational
+change. For the selected half,
+it rises from 0.055 without noise to 0.262 at $\epsilon=5$ and 0.583 at
+$\epsilon=1$. For the full pool, it rises from 0.056 to 0.193 and then 0.644.
+At the strongest perturbation, more than half of the records predicted as
+benign are attacks. By reporting both macro F1 and attack leakage, the
+evaluation shows how a moderate aggregate score can hide a costly security
+failure.
 
-\subsection{RQ5: Scalability and End-to-End Cost}
+\subsection{RQ5: Scalability and Replay Cost}
 
-Exact selection is useful only if it remains fast as deployments add models
-or attack classes. We first compare \Fname with exhaustive search at
-$C=8$ and $M\in\{8,10,12,16\}$. All ten repeats at each size match the
-exhaustive optimum, for 40 of 40 agreements; median time ranges from 37.70 to
-118.72 ms and every 95th percentile remains below 125 ms. This direct
-comparison verifies exactness independently of the larger scaling experiment.
-We then vary candidates and classes in Fig.~\ref{fig:eval-solver-scaling}.
+To verify exact selection directly, we compare \Fname with exhaustive search
+at $C=8$ and $M\in\{8,10,12,16\}$. Across ten repetitions at every size, the
+solver matches the exhaustive optimum in all 40 comparisons. Its median time
+ranges from 37.70 to 118.72 ms, while every 95th percentile remains below
+125 ms. We then vary the number of candidates and attack classes separately
+in Fig.~\ref{fig:eval-solver-scaling}.
 
 \begin{figure*}[t]
     \centering
     \includegraphics[width=0.96\textwidth]{figures/eval_solver_scaling.pdf}
-    \caption{Time required to select models as the deployment grows. The
-    panels independently vary candidate models and attack classes on a
-    logarithmic time scale. Points are medians over ten repeats; upper bars
-    mark the 95th percentile.}
+    \caption{The figure shows how selection time grows with the deployment.
+    The left panel varies candidate models, while the right panel varies
+    attack classes. Each panel uses an independently sampled sweep. Points
+    show medians over ten repetitions, and upper bars mark the 95th
+    percentile.}
     \label{fig:eval-solver-scaling}
 \end{figure*}
 
-With 12 attack classes, selecting from 66 candidate models takes a median of
-1.99 seconds; increasing the pool to 256 models raises this to 33.73 seconds.
-With 66 candidates, increasing the attack vocabulary from 12 to 20 classes
-raises the median from 2.95 to 100.10 seconds. Target-class diversity is
-therefore the stronger driver of selection time in this range.
+With 12 attack classes, \Fname selects from 66 candidates in a median of
+1.99 seconds and from 256 candidates in 33.73 seconds. With 66 candidates,
+raising the attack vocabulary from 12 to 20 classes increases the median from
+2.95 to 100.10 seconds. Within this range, attack class diversity drives time
+more strongly than the number of candidate models.
 
-Table~\ref{tab:eval-system-cost} connects this isolated selection time to the
-full experiment. The total replay time includes every compared selection rule
-and budget within a data split, whereas communication compares \Fname at the
-50\% budget with all 66 models.
+Table~\ref{tab:eval-system-cost} places selection within the complete
+experiment. The replay time includes every compared rule and budget within a
+data split. The communication columns compare \Fname at the 50\% budget with
+the full pool.
 
 \begin{table}[t]
     \centering
-    \caption{Single-machine replay time and logical communication at the
-    50\% budget. Times are five-split means in minutes; parenthesized values
-    give the largest time cost.}
+    \caption{The table reports single machine replay time and logical
+    communication at the 50\% budget. Times are means over five splits in
+    minutes. Parentheses identify the largest time component.}
     \label{tab:eval-system-cost}
     \small
     \setlength{\tabcolsep}{3.0pt}
@@ -363,7 +353,7 @@ and budget within a data split, whereas communication compares \Fname at the
         \toprule
         \multicolumn{3}{c}{Replay time} \\
         \midrule
-        Dataset & Total & Largest time cost \\
+        Dataset & Total & Largest time component \\
         DDoS     & 50.09 & Selection (17.11) \\
         MalDroid & 0.78  & Shared training (0.59) \\
         Darknet  & 42.51 & Shared training (37.88) \\
@@ -380,20 +370,18 @@ and budget within a data split, whereas communication compares \Fname at the
     \end{tabular}
 \end{table}
 
-Shared-model training accounts for 74.9\% of MalDroid time and 89.1\% of
-Darknet time. DoH divides time almost evenly between shared-model training
-(33.2\%) and selection comparisons (32.4\%), while DDoS spreads most of its
-cost across selection (34.2\%), shared training (31.7\%), and test evaluation
-(28.2\%). The system bottleneck therefore depends on the data scale and model
-backend rather than on selection alone.
+On MalDroid and Darknet, shared stacker training accounts for 74.9\% and
+89.1\% of replay time. On DoH, shared training and selection comparisons use
+33.2\% and 32.4\%. On DDoS, selection, shared training, and test evaluation
+use 34.2\%, 31.7\%, and 28.2\%. The dominant computation therefore depends on
+the data scale and learner rather than on selection alone.
 
-The communication columns explain why selecting half of the models saves
-49.3--50.4\% of total logical traffic. DDoS is score-upload dominated:
-probability blocks form 93.6\% of its full-pool bytes. Model delivery instead
-forms 97.4\% on MalDroid, 93.4\% on Darknet, and 73.0\% on DoH. The selector
-therefore reduces the model-dependent transfer that dominates each task.
-Together, the timing and communication results show that deployment-sized
-selection finishes in seconds at the main 66-model scale and approximately
-halves protocol traffic.
+At the 50\% budget, \Fname saves between 49.3\% and 50.4\% of total logical
+communication. Score blocks form 93.6\% of full pool bytes on DDoS, whereas
+model delivery forms 97.4\% on MalDroid, 93.4\% on Darknet, and 73.0\% on
+DoH. The selected subset therefore reduces the transfer component that
+dominates each task. At the main scale of 66 candidates, the exact selector
+finishes in seconds and the complete protocol uses about half the logical
+traffic of the full pool.
 
 \endgroup
