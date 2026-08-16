@@ -1,6 +1,3 @@
-\begingroup
-\color{red}
-
 % All quantitative figures in this section are Matplotlib PDFs generated from
 % the validated paper tables. Their embedded fonts are TrueType, not Type 3.
 
@@ -42,23 +39,7 @@ detectors from 66. In RQ5, we separately vary the candidate pool from 16 to
 the evaluation scale. The reserved DDoS test set contains 13 observed
 classes, including one attack class absent from client training.
 
-\begin{table*}[t]
-    \centering
-    \caption{We evaluate four datasets with different sample, feature, and
-    class counts.}
-    \label{tab:eval-datasets}
-    \small
-    \begin{tabular}{lrrrr}
-        \toprule
-        Dataset & Training samples & Test samples & Features & Evaluated classes \\
-        \midrule
-        DDoS     & 3,355,966 & 1,127,526 & 79  & 13 \\
-        MalDroid & 8,118     & 3,480     & 470 & 5  \\
-        Darknet  & 99,066    & 42,459    & 76  & 11 \\
-        DoH      & 1,005,708 & 431,034   & 29  & 4  \\
-        \bottomrule
-    \end{tabular}
-\end{table*}
+\input{eval/tables/datasets}
 
 \bheading{Protocol} We divide each training pool into disjoint 60\%, 10\%,
 and 30\% partitions for local detector training, selection validation, and
@@ -111,26 +92,7 @@ first compare macro F1 at the central 50\% operating point. We then inspect
 accuracy and minimum shared class recall at the same point. Finally, we trace
 macro F1 across the full budget range.
 
-\begin{table*}[t]
-    \centering
-    \caption{We compare macro F1 against two budget matched baselines at the
-    50\% communication budget. The full detector pool provides the
-    unconstrained reference. Values report means and 95\% confidence intervals
-    over five repeated splits.}
-    \label{tab:eval-main-results}
-    \small
-    \setlength{\tabcolsep}{4.5pt}
-    \begin{tabular}{@{}lrrrr@{}}
-        \toprule
-        Method & DDoS & MalDroid & Darknet & DoH \\
-        \midrule
-        Full detector pool         & $0.6412\pm0.0121$ & $0.8449\pm0.0123$ & $0.5972\pm0.0128$ & $0.6073\pm0.0042$ \\
-        Random selection           & $0.6079\pm0.0287$ & $0.8344\pm0.0100$ & $0.5931\pm0.0071$ & $0.6074\pm0.0028$ \\
-        Individual utility ranking & $0.6303\pm0.0437$ & $0.8374\pm0.0132$ & $0.5921\pm0.0168$ & $0.6069\pm0.0042$ \\
-        \textbf{\Fname}            & $0.6153\pm0.0453$ & $0.8397\pm0.0121$ & $0.5953\pm0.0148$ & $0.6064\pm0.0038$ \\
-        \bottomrule
-    \end{tabular}
-\end{table*}
+\input{eval/tables/main}
 
 \begin{figure*}[t]
     \centering
@@ -180,15 +142,18 @@ identically distributed allocation. We require every accepted partition to
 provide at least two local training classes to each client so that each local
 detector remains a multiclass model.
 
+Figure~\ref{fig:eval-heterogeneity} summarizes both partition feasibility and
+detection quality as client label imbalance increases.
+
 \begin{figure*}[t]
     \centering
     \includegraphics[width=0.98\textwidth]{figures/eval_heterogeneity.pdf}
     \caption{The figure shows how controlled client label imbalance changes
-    feasibility and detection. Panel (a) counts usable partitions among ten
-    attempts. Panel (b) measures label imbalance with Jensen Shannon
+    feasibility and detection. Panel (a) counts accepted pre-registered
+    partition seeds out of ten. Panel (b) measures label imbalance with Jensen Shannon
     divergence. Panels (c) and (d) report macro F1 at the 50\% budget. Error
-    bars use the accepted partitions, with ten runs except for five MalDroid
-    runs at $\alpha=1$. Missing MalDroid points denote partition settings
+    bars span accepted partition seeds, with $n=10$ except for MalDroid at
+    $\alpha=1$, where $n=5$. Missing MalDroid points denote partition settings
     that cannot train every client on at least two classes.}
     \label{fig:eval-heterogeneity}
 \end{figure*}
@@ -197,16 +162,19 @@ On Darknet, all ten partitions remain usable at every level, while measured
 divergence rises from 0.0008 under the balanced allocation to 0.3516 at
 $\alpha=0.1$. On MalDroid, all ten balanced and all ten $\alpha=10$
 partitions remain usable, but only five $\alpha=1$ partitions pass the same
-rule. None of the $\alpha=0.5$ or $0.1$ attempts can divide this smaller five
-class training pool among 66 clients while retaining two classes per client.
+rule. None of the ten pre-registered partition seeds at $\alpha=0.5$ or $0.1$
+can divide this smaller five class training pool among 66 clients while
+retaining two classes per client, despite allowing up to 100 generation
+attempts per seed.
 
 Within the usable range, Darknet macro F1 stays between 0.5895 and 0.5976 at
 the 50\% budget as imbalance grows. MalDroid stays between 0.8328 and 0.8375.
-Under the original assignments, a larger budget helps the weakest class more
-clearly. As the budget rises from 25\% to 75\%, Darknet macro F1 grows from
-0.6162 to 0.6290 and minimum shared class recall grows from 0.0452 to 0.0964.
-Over the same range, DDoS macro F1 changes from 0.6039 to 0.6104 and minimum
-shared class recall changes from 0.0568 to 0.0773.
+In a separate budget sweep that retains the original client assignments, a
+larger budget helps the weakest class more clearly. As the budget rises from
+25\% to 75\%, Darknet macro F1 grows from 0.6162 to 0.6290 and minimum shared
+class recall grows from 0.0452 to 0.0964. Over the same range, DDoS macro F1
+changes from 0.6039 to 0.6104 and minimum shared class recall changes from
+0.0568 to 0.0773.
 
 We then remove the source support priority while retaining the same secondary
 search. Across 30 comparisons with the original assignments and 225
@@ -237,26 +205,7 @@ selected set, support, macro F1, and minimum class recall unchanged. By
 contrast, the learning backends produce visible score differences, as
 Table~\ref{tab:eval-architecture} shows.
 
-\begin{table}[t]
-    \centering
-    \caption{The table compares macro F1 across local and shared learners.
-    Values are means over five splits. Bold marks the largest mean for each
-    dataset.}
-    \label{tab:eval-architecture}
-    \footnotesize
-    \setlength{\tabcolsep}{2.8pt}
-    \begin{tabular}{@{}lrrrr@{}}
-        \toprule
-        Dataset & \makecell{XGB\\$\to$XGB} & \makecell{LGBM\\$\to$XGB} &
-        \makecell{XGB\\$\to$LGBM} & \makecell{LGBM\\$\to$LGBM} \\
-        \midrule
-        DDoS     & 0.617 & \textbf{0.635} & 0.633 & 0.615 \\
-        MalDroid & 0.806 & 0.833 & 0.827 & \textbf{0.840} \\
-        Darknet  & 0.578 & 0.585 & 0.592 & \textbf{0.595} \\
-        DoH      & 0.592 & 0.591 & \textbf{0.607} & 0.606 \\
-        \bottomrule
-    \end{tabular}
-\end{table}
+\input{eval/tables/architecture}
 
 On DDoS, LightGBM local detectors with an XGBoost shared learner obtain the
 largest mean. On MalDroid and Darknet, LightGBM obtains the largest mean at
@@ -337,28 +286,7 @@ quality, we report the complete result in
 Table~\ref{tab:eval-system-cost}. We use the replay column to include every
 evaluated rule and budget within one data split.
 
-\begin{table*}[t]
-    \centering
-    \caption{We report complete single machine replay time and logical
-    protocol bytes at the 50\% budget. Times are means over five
-    splits. The final column reports the macro F1 loss relative to the full
-    detector pool.}
-    \label{tab:eval-system-cost}
-    \small
-    \setlength{\tabcolsep}{4.2pt}
-    \begin{tabular}{@{}lrlrrrr@{}}
-        \toprule
-        Dataset & \makecell{Replay\\time (min)} & Dominant stage &
-        \makecell{Full pool\\(MiB)} & \makecell{\Fname\\(MiB)} &
-        \makecell{Logical bytes\\saved} & \makecell{Macro F1\\loss} \\
-        \midrule
-        DDoS     & 50.09 & Selection (34.2\%)        & 7,040.05 & 3,489.07 & 50.4\% & 0.0258 \\
-        MalDroid & 0.78  & Stacker training (74.9\%) &   662.66 &   335.94 & 49.3\% & 0.0052 \\
-        Darknet  & 42.51 & Stacker training (89.1\%) & 3,436.78 & 1,732.29 & 49.6\% & 0.0019 \\
-        DoH      & 8.54  & Stacker training (33.2\%) & 2,942.76 & 1,488.51 & 49.4\% & 0.0009 \\
-        \bottomrule
-    \end{tabular}
-\end{table*}
+\input{eval/tables/cost}
 
 Across the four tasks, \Fname removes between 49.3\% and 50.4\% of logical
 protocol bytes while losing at most 0.0258 macro F1. Across MalDroid, Darknet,
@@ -374,5 +302,3 @@ dominates the replay. By contrast, selection takes the largest share on DDoS.
 Therefore, the main computation cost depends on the task rather than on
 selection alone. At the scale of 66 candidates, the exact selector itself
 finishes in seconds.
-
-\endgroup

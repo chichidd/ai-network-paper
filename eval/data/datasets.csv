@@ -1,0 +1,5 @@
+dataset,training_samples,test_samples,features,evaluated_classes
+ddos,3355966,1127526,79,13
+maldroid,8118,3480,470,5
+darknet,99066,42459,76,11
+doh,1005708,431034,29,4

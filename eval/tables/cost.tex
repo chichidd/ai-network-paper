@@ -1,0 +1,17 @@
+\begin{table*}[t]
+    \centering
+    \caption{We report complete single machine replay time and logical protocol bytes at the 50\% budget. Times are means over five splits. The final column reports the macro F1 loss relative to the full detector pool.}
+    \label{tab:eval-system-cost}
+    \small
+    \setlength{\tabcolsep}{4.2pt}
+    \begin{tabular}{@{}lrlrrrr@{}}
+        \toprule
+        Dataset & \makecell{Replay\\time (min)} & Dominant stage & \makecell{Full pool\\(MiB)} & \makecell{\Fname\\(MiB)} & \makecell{Logical bytes\\saved} & \makecell{Macro F1\\loss} \\
+        \midrule
+        DDoS & 50.09 & Selection (34.2\%) & 7,040.05 & 3,489.07 & 50.4\% & 0.0258 \\
+        MalDroid & 0.78 & Stacker training (74.9\%) & 662.66 & 335.94 & 49.3\% & 0.0052 \\
+        Darknet & 42.51 & Stacker training (89.1\%) & 3,436.78 & 1,732.29 & 49.6\% & 0.0019 \\
+        DoH & 8.54 & Stacker training (33.2\%) & 2,942.76 & 1,488.51 & 49.4\% & 0.0009 \\
+        \bottomrule
+    \end{tabular}
+\end{table*}

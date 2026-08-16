@@ -1,0 +1,17 @@
+\begin{table}[t]
+    \centering
+    \caption{The table compares macro F1 across local and shared learners. Values are means over five splits. Bold marks the largest mean for each dataset.}
+    \label{tab:eval-architecture}
+    \footnotesize
+    \setlength{\tabcolsep}{2.8pt}
+    \begin{tabular}{@{}lrrrr@{}}
+        \toprule
+        Dataset & \makecell{XGB\\$\to$XGB} & \makecell{LGBM\\$\to$XGB} & \makecell{XGB\\$\to$LGBM} & \makecell{LGBM\\$\to$LGBM} \\
+        \midrule
+        DDoS & 0.617 & \textbf{0.635} & 0.633 & 0.615 \\
+        MalDroid & 0.806 & 0.833 & 0.827 & \textbf{0.840} \\
+        Darknet & 0.578 & 0.585 & 0.592 & \textbf{0.595} \\
+        DoH & 0.592 & 0.591 & \textbf{0.607} & 0.606 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
