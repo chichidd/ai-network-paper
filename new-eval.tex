@@ -4,12 +4,12 @@
 \section{Evaluation}
 \label{sec:experiments}
 
-We evaluate whether \Fname preserves attack knowledge under a hard
-communication budget while retaining predictive quality. We organize the
+We evaluate whether \Fname preserves source class support under a hard
+selection cost budget while retaining predictive quality. We organize the
 evaluation around five questions:
 \begin{packeditemize}
     \item \textbf{RQ1: Detection quality under a budget.} How much predictive
-    quality does the shared detector retain as communication decreases?
+    quality does the shared detector retain as the selection budget decreases?
     \item \textbf{RQ2: Client label heterogeneity.} How do different client
     label distributions affect usable training partitions, class support, and
     detection quality?
@@ -17,7 +17,7 @@ evaluation around five questions:
     signals, semantic settings, and learning backends change the result?
     \item \textbf{RQ4: Score randomization.} How much detection quality
     remains as Laplace perturbation becomes stronger?
-    \item \textbf{RQ5: Scalability and replay cost.} How do selection time and
+    \item \textbf{RQ5: Scalability and runtime.} How do selection time and
     communication grow with the deployment?
 \end{packeditemize}
 
@@ -37,7 +37,8 @@ central 50\% operating point asks the coordinator to choose roughly 33
 detectors from 66. In RQ5, we separately vary the candidate pool from 16 to
 256 to test how selection scales. Table~\ref{tab:eval-datasets} summarizes
 the evaluation scale. The reserved DDoS test set contains 13 observed
-classes, including one attack class absent from client training.
+classes, including one attack class absent from client training. That class
+contributes to macro F1 but not to minimum evaluated class recall.
 
 \input{eval/tables/datasets}
 
@@ -46,16 +47,19 @@ and 30\% partitions for local detector training, selection validation, and
 shared stacker training. We reserve the test set until both selection and
 stacker fitting have finished. Unless stated otherwise, we use five repeated
 splits, LightGBM~\cite{lightgbm} for local detectors and the shared stacker, a
-50\% communication budget, minimum source support $n_{\min}=2$, class weights
+50\% selection cost budget, minimum source support $n_{\min}=2$, class weights
 that are inversely proportional to the square root of class frequency, and
 equal weights for the three secondary selection signals.
 
 \bheading{Baselines and reference point} We compare \Fname with two baselines
-under the same communication budget. Under random selection, the coordinator
-samples a feasible set and averages 20 fixed draws within each data split.
-Under individual utility ranking, the coordinator orders detectors by their
-own validation quality. We use the full pool of 66 detectors as the
-unconstrained reference and the 100\% communication point.
+under the same selection cost budget. For the random baseline, each of 20 fixed
+selection seeds within a data split generates a random candidate order. The
+coordinator scans that order once and adds a detector whenever it fits the
+remaining budget. We average the 20 selections within the split. For the
+individual utility baseline, the coordinator ranks detectors by mean
+calibrated Brier utility per selection cost byte and greedily packs the fixed
+order. We use the full pool of 66 detectors as the unconstrained reference and
+the 100\% selection cost reference point.
 By contrast, \Fname first maximizes weighted source class support and then
 refines current predictive quality without reducing that support. We later
 remove only the source support priority while retaining the same secondary
@@ -65,13 +69,16 @@ search.
 score because it gives every class equal weight. In imbalanced security
 traffic, this prevents a frequent class from hiding weak detection of a rarer
 attack class. We also report accuracy for overall correctness, balanced
-accuracy for average class recall, and minimum shared class recall for the
-weakest attack class that collaborating clients have in common. We measure
+accuracy for average class recall, and minimum evaluated class recall. The
+last metric is the lowest recall among labels that appear in the sealed test
+set and belong to the fixed training class set. We measure
 weighted class coverage separately because it describes retained training
 support rather than classifier quality. For the DDoS privacy experiment, we
 report \emph{attack leakage}, which is the fraction of predictions labeled
-benign that are actually attacks. We count communication with the protocol
-bytes defined in Eq.~\ref{eq:candidate_cost}.
+benign that are actually attacks. Equation~\ref{eq:candidate_cost} defines the
+selection budget. For system results, we add the initial candidate upload
+and stacker label upload according to
+Eq.~\ref{eq:total_logical_communication}.
 
 We report means and 95\% Student \(t\) confidence intervals over five
 repeated splits unless stated otherwise. When two conditions share a split,
@@ -79,8 +86,8 @@ we pair their observations. We apply Holm correction within each comparison
 family fixed before analysis. We recompute every detection score from the
 reserved test confusion matrix.
 
-\bheading{Implementation} We run the experiments as a single machine
-federation replay under Linux and Python~3.9.25. The software stack uses
+\bheading{Experimental environment} We run a centralized simulation on one
+machine under Linux and Python~3.9.25. The software stack uses
 NumPy~1.26.4, Scikit Learn~1.3.2, LightGBM~4.6.0, and
 XGBoost~\cite{xgboost}~1.4.2. We record wall clock time and the logical bytes
 exchanged by the evaluated protocol.
@@ -89,7 +96,7 @@ exchanged by the evaluated protocol.
 
 To determine whether \Fname retains detection signal under a hard budget, we
 first compare macro F1 at the central 50\% operating point. We then inspect
-accuracy and minimum shared class recall at the same point. Finally, we trace
+accuracy and minimum evaluated class recall at the same point. Finally, we trace
 macro F1 across the full budget range.
 
 \input{eval/tables/main}
@@ -97,7 +104,7 @@ macro F1 across the full budget range.
 \begin{figure*}[t]
     \centering
     \includegraphics[width=0.98\textwidth]{figures/eval_budget_utility.pdf}
-    \caption{The figure tracks detection quality as communication changes.
+    \caption{The figure tracks detection quality as the selection cost budget changes.
     Lines show three selection rules at the 25\%, 50\%, and 75\% budgets.
     The star marks the full pool of 66 models. Error bars show 95\%
     confidence intervals over five repeated splits. Each dataset uses its own
@@ -105,18 +112,18 @@ macro F1 across the full budget range.
     \label{fig:eval-budget-utility}
 \end{figure*}
 
-At the 50\% target, \Fname uses from 49.5\% to 50.0\% of full pool
-communication. It keeps macro F1 within 0.0052 of the full pool on MalDroid,
+At the 50\% target, \Fname uses from 49.5\% to 50.0\% of the full pool
+selection cost. It keeps macro F1 within 0.0052 of the full pool on MalDroid,
 Darknet, and DoH. DDoS shows the larger gap of 0.0258. As
 Fig.~\ref{fig:eval-budget-utility} shows, adding models does not always produce
 a monotonic gain. MalDroid improves as the budget grows, whereas the other
 datasets fluctuate within narrower ranges.
 
 Across MalDroid, Darknet, and DoH, selecting half of the detectors changes
-accuracy by at most 0.0046 and minimum shared class recall by at most 0.0061.
-On DDoS, \Fname loses 0.0296 accuracy but only 0.0094 minimum shared class
-recall. On Darknet, even the full pool reaches only 0.0077 recall on the
-weakest shared class, compared with 0.0058 after selection. Both
+accuracy by at most 0.0046 and minimum evaluated class recall by at most 0.0061.
+On DDoS, \Fname loses 0.0296 accuracy but only 0.0094 minimum evaluated class
+recall. On Darknet, even the full pool reaches only 0.0077 minimum evaluated
+class recall, compared with 0.0058 after selection. Both
 configurations therefore reveal the same Darknet bottleneck.
 Across all four datasets, \Fname also preserves the full attainable weighted
 class support.
@@ -126,15 +133,15 @@ and Darknet, while the two means differ by 0.0010 on DoH. Compared with
 individual utility ranking, \Fname raises the mean on MalDroid and Darknet and
 differs by 0.0005 on DoH. On DDoS, individual utility ranking gains 0.0150
 macro F1 at the 50\% budget but retains only 0.910 of the attainable weighted
-support. At the same budget, \Fname attains the full support value of 1.0.
-Thus, the DDoS result exposes the intended choice between average predictive
-quality and an avoidable attack class blind spot.
+source support. At the same budget, \Fname attains the full support value of
+1.0. Thus, the DDoS result exposes the intended tradeoff between average
+predictive quality and weighted source support.
 
 \subsection{RQ2: Client Label Heterogeneity}
 
 When clients observe different attack classes, we evaluate both naturally
 occurring and controlled label distributions. To preserve the original
-deployment structure, we first keep the archived DDoS and Darknet client
+deployment structure, we first keep the original DDoS and Darknet client
 assignments and repeat only the data split. To isolate label imbalance, we
 then draw client partitions with Dirichlet parameters
 $\alpha\in\{10,1,0.5,0.1\}$ and compare them with an independent and
@@ -149,10 +156,10 @@ detection quality as client label imbalance increases.
     \centering
     \includegraphics[width=0.98\textwidth]{figures/eval_heterogeneity.pdf}
     \caption{The figure shows how controlled client label imbalance changes
-    feasibility and detection. Panel (a) counts accepted pre-registered
-    partition seeds out of ten. Panel (b) measures label imbalance with Jensen Shannon
+    feasibility and detection. Panel (a) counts valid partitions among ten
+    fixed seeds. Panel (b) measures label imbalance with Jensen Shannon
     divergence. Panels (c) and (d) report macro F1 at the 50\% budget. Error
-    bars span accepted partition seeds, with $n=10$ except for MalDroid at
+    bars span valid partition seeds, with $n=10$ except for MalDroid at
     $\alpha=1$, where $n=5$. Missing MalDroid points denote partition settings
     that cannot train every client on at least two classes.}
     \label{fig:eval-heterogeneity}
@@ -162,7 +169,7 @@ On Darknet, all ten partitions remain usable at every level, while measured
 divergence rises from 0.0008 under the balanced allocation to 0.3516 at
 $\alpha=0.1$. On MalDroid, all ten balanced and all ten $\alpha=10$
 partitions remain usable, but only five $\alpha=1$ partitions pass the same
-rule. None of the ten pre-registered partition seeds at $\alpha=0.5$ or $0.1$
+rule. None of the ten fixed partition seeds at $\alpha=0.5$ or $0.1$
 can divide this smaller five class training pool among 66 clients while
 retaining two classes per client, despite allowing up to 100 generation
 attempts per seed.
@@ -171,16 +178,16 @@ Within the usable range, Darknet macro F1 stays between 0.5895 and 0.5976 at
 the 50\% budget as imbalance grows. MalDroid stays between 0.8328 and 0.8375.
 In a separate budget sweep that retains the original client assignments, a
 larger budget helps the weakest class more clearly. As the budget rises from
-25\% to 75\%, Darknet macro F1 grows from 0.6162 to 0.6290 and minimum shared
-class recall grows from 0.0452 to 0.0964. Over the same range, DDoS macro F1
-changes from 0.6039 to 0.6104 and minimum shared class recall changes from
+25\% to 75\%, Darknet macro F1 grows from 0.6162 to 0.6290 and minimum
+evaluated class recall grows from 0.0452 to 0.0964. Over the same range, DDoS
+macro F1 changes from 0.6039 to 0.6104 and minimum evaluated class recall changes from
 0.0568 to 0.0773.
 
 We then remove the source support priority while retaining the same secondary
 search. Across 30 comparisons with the original assignments and 225
 comparisons with controlled assignments, both versions choose the same set
-and obtain the same macro F1, minimum class recall, communication, and
-attained support. In these evaluated layouts, the secondary refinement
+and obtain the same macro F1, minimum evaluated class recall, communication,
+and attained support. In these evaluated layouts, the secondary refinement
 already reaches the maximum attainable support.
 
 \subsection{RQ3: Selection Signals and Learners}
@@ -201,8 +208,8 @@ sources of universal improvement.
 We also vary $n_{\min}\in\{1,2,5,10\}$ and compare class weights based on the
 inverse square root of frequency with uniform weights. Across two fixed
 Darknet layouts and two learner combinations, these choices leave the
-selected set, support, macro F1, and minimum class recall unchanged. By
-contrast, the learning backends produce visible score differences, as
+selected set, support, macro F1, and minimum evaluated class recall unchanged.
+By contrast, the learning backends produce visible score differences, as
 Table~\ref{tab:eval-architecture} shows.
 
 \input{eval/tables/architecture}
@@ -227,7 +234,7 @@ and differ in one feature vector. The theorem gives label conditional record
 level local differential privacy to each released block. When one record
 contributes $s$ released blocks, sequential composition gives a total
 parameter of $s\epsilon$ for that upload. During the centralized sensitivity
-replay, we sample the same noise distribution after selection and keep the
+experiment, we sample the same noise distribution after selection and keep the
 test encoding fixed so that the curves isolate the effect on stacker training.
 
 \begin{figure}[t]
@@ -255,7 +262,7 @@ benign are attacks. By reporting both macro F1 and attack leakage, the
 evaluation shows how a moderate aggregate score can hide a costly security
 failure.
 
-\subsection{RQ5: Scalability and Replay Cost}
+\subsection{RQ5: Scalability and Runtime}
 
 To verify exact selection directly, we compare \Fname with exhaustive search
 at $C=8$ and $M\in\{8,10,12,16\}$. Across ten repetitions at every size, the
@@ -281,24 +288,24 @@ raising the attack vocabulary from 12 to 20 classes increases the median from
 2.95 to 100.10 seconds. Within this range, attack class diversity drives time
 more strongly than the number of candidate models.
 
-To connect computational cost and communication savings with detection
-quality, we report the complete result in
-Table~\ref{tab:eval-system-cost}. We use the replay column to include every
-evaluated rule and budget within one data split.
+To connect runtime and communication savings with detection quality, we report
+the combined result in Table~\ref{tab:eval-system-cost}. The runtime column
+includes every evaluated rule and budget within one data split.
 
 \input{eval/tables/cost}
 
-Across the four tasks, \Fname removes between 49.3\% and 50.4\% of logical
-protocol bytes while losing at most 0.0258 macro F1. Across MalDroid, Darknet,
+Across the four tasks, \Fname reduces total logical communication by between
+49.3\% and 50.4\% while losing at most 0.0258 macro F1. Across MalDroid, Darknet,
 and DoH, the loss remains at or below 0.0052. For DDoS, the larger quality
 change still preserves the full attainable weighted class support reported in
-RQ1. Therefore, the budget converts an approximately one half reduction in
-logical protocol bytes into a small quality change on three tasks and a
-measurable tradeoff on DDoS.
+RQ1. Therefore, the 50\% selection cost operating point yields an approximately
+one half reduction in total logical communication, with a small quality change
+on three tasks and a measurable tradeoff on DDoS.
 
-When a complete split replays every rule and budget, its mean duration ranges
+When one split evaluates every rule and budget, its mean duration ranges
 from 0.78 to 50.09 minutes. For MalDroid and Darknet, stacker training
-dominates the replay. By contrast, selection takes the largest share on DDoS.
+dominates the total runtime. By contrast, selection takes the largest share on
+DDoS.
 Therefore, the main computation cost depends on the task rather than on
 selection alone. At the scale of 66 candidates, the exact selector itself
 finishes in seconds.

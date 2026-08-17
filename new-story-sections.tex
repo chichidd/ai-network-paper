@@ -1,5 +1,4 @@
 \begingroup
-\color{red}
 
 \section{Problem Statement}
 \label{sec:problem}
@@ -10,8 +9,8 @@ objective, and derive its selection and privacy guarantees.
 \subsection{System Model}
 
 After local detector fitting has ended, $J$ clients expose a pool of $M$
-candidate detectors. The current implementation assigns one candidate to each
-client, while the method allows $J$ and $M$ to vary independently. For candidate
+candidate detectors. Our experiments assign one candidate to each client,
+while the method allows $J$ and $M$ to vary independently. For candidate
 $i$, let $p_i(x)\in\mathbb R^{h_i}$ denote its native probability output.
 Because different candidates may use different native label coordinates, the
 method validates a hard semantic map
@@ -36,23 +35,32 @@ candidate fitting, selection calibration, stacker fitting, and sealed testing.
 Because test labels remain unopened until both the selected set and stacker
 have been frozen, they cannot affect calibration, cost, or selection.
 
-The deployment budget uses a logical cost for each selected candidate. Let
+The selection stage uses a logical cost for each selected candidate. Let
 $K_i$ be candidate $i$'s serialized size, let $B_t$ be the number of
 stacker-fit records, and let $d$ be the logical byte width of one probability
-element. We charge for delivering the candidate to $J$ clients and supplying
-one aligned block for every stacker-fit record:
+element. For a selected set $S$, define
 \begin{equation}
+C_{\mathrm{sel}}(S)=\sum_{i\in S}b_i,
+\qquad
 b_i=J K_i+dB_t(C+1).
 \label{eq:candidate_cost}
 \end{equation}
-Given a budget fraction $\beta$, the registered profile sets
+The first term delivers a selected candidate to $J$ clients, and the second
+uploads one aligned probability block per stacker-fit record. Given a budget
+fraction $\beta$, we set
 \begin{equation}
 B=\left\lfloor\beta\sum_{i=1}^{M}b_i\right\rfloor.
 \label{eq:logical_budget}
 \end{equation}
 The denominator contains every candidate, including those that may later fail
-calibration. This definition provides a reproducible payload measure for model
-delivery and aligned score blocks.
+calibration. The total logical communication measured in the evaluation also
+includes the initial candidate upload and the stacker label upload:
+\begin{equation}
+C_{\mathrm{total}}(S)=\sum_{i=1}^{M}K_i+C_{\mathrm{sel}}(S)+dB_t.
+\label{eq:total_logical_communication}
+\end{equation}
+We use $C_{\mathrm{sel}}$ to enforce the budget and $C_{\mathrm{total}}$ to
+compare the complete communication of selected and full pool configurations.
 
 \subsection{Detector Selection Objective}
 
@@ -75,8 +83,11 @@ Accordingly, the intended target is
 \sum_{i\in S}b_i\le B.
 \label{eq:lexicographic_target}
 \end{equation}
-Importantly, Eq.~\ref{eq:lexicographic_target} specifies the decision order.
-The production solver computes its primary coordinate exactly and refines the
+Here, $\widehat{\mathcal R}$ contains candidates that pass calibration,
+$C_{\mathrm{sem}}$ measures their weighted source support, and $\Phi$
+summarizes current predictive evidence. The following sections define each
+quantity. Equation~\ref{eq:lexicographic_target} specifies the decision order.
+The primary solver computes its first coordinate exactly and refines the
 secondary coordinate heuristically. Only the optional small-pool exhaustive
 solver computes the complete lexicographic optimum.
 
@@ -85,8 +96,8 @@ solver computes the complete lexicographic optimum.
 
 We next specify the execution model and privacy setting used by the analysis.
 
-The current implementation realizes the workflow as one centralized
-experimental replay. Figure~\ref{fig:workflow} encodes the protocol's logical
+We evaluate the workflow in a centralized simulation.
+Figure~\ref{fig:workflow} encodes the protocol's logical
 data dependencies. In a client-side realization, each client perturbs its
 selected probability blocks with fresh private Laplace randomness before
 upload. The optional sensitivity mode samples the same distribution centrally
@@ -164,8 +175,8 @@ Following the workflow overview, we first specify how aligned outputs are
 calibrated and summarized.
 
 For calibration record $(x_t,y_t)$, let $e_{y_t}\in\mathbb R^{C+1}$ be the
-one-hot label vector with a zero $\bot$ coordinate. Because the implementation
-uses the complete aligned output, it defines
+one-hot label vector with a zero $\bot$ coordinate. We evaluate each candidate
+with the complete aligned output and define
 \begin{equation}
 \ell_{i,t}=\frac12\left\|q_i(x_t)-e_{y_t}\right\|_2^2,
 \qquad
@@ -246,7 +257,7 @@ $n_{\min}>0$, define
 \Gamma_{i,c}=\mathbf 1\{H_{i,c}\ge n_{\min}\}.
 \label{eq:semantic_presence}
 \end{equation}
-If $H_c=\sum_i H_{i,c}>0$, the registered profile uses
+If $H_c=\sum_i H_{i,c}>0$, we define
 \begin{equation}
 w_c=\frac{H_c^{-1/2}}{\sum_{d=1}^{C}H_d^{-1/2}},
 \qquad
@@ -287,10 +298,9 @@ Here, $U$ summarizes record-level utility, $C_{\mathrm{pred}}$ summarizes
 conservative classwise evidence, and $D_{\mathrm{rep}}$ rewards behavior that
 represents the eligible pool.
 Here and throughout the analysis, we set
-$\max_{i\in\varnothing}\kappa_{i,k}=0$, matching the implementation's
-zero-valued empty-set convention.
-Unlike $C_{\mathrm{sem}}$, $C_{\mathrm{pred}}$ averages classes uniformly,
-exactly as in the implementation. After fixing nonnegative weights that sum
+$\max_{i\in\varnothing}\kappa_{i,k}=0$.
+Unlike $C_{\mathrm{sem}}$, $C_{\mathrm{pred}}$ averages classes uniformly.
+After fixing nonnegative weights that sum
 to one, the secondary objective is
 \begin{equation}
 \Phi(S)=\lambda_U U(S)+\lambda_C C_{\mathrm{pred}}(S)
@@ -311,13 +321,13 @@ W^\star&=\max_{S\in\mathcal F_B}C_{\mathrm{sem}}(S).
 \end{aligned}
 \label{eq:primary_value}
 \end{equation}
-To compute $W^\star$, the production solver encodes every $\Gamma_i$ as a
+To compute $W^\star$, the primary solver encodes every $\Gamma_i$ as a
 $C$-bit mask and uses a sparse dynamic program to recover a least-cost witness.
 It then spends any remaining budget through density-based fill and accepts a
 one-for-one replacement only when the change preserves $W^\star$ and improves
-$\Phi$ by more than the registered tolerance $\varepsilon_{\mathrm{loc}}$.
+$\Phi$ by more than the fixed tolerance $\varepsilon_{\mathrm{loc}}$.
 
-For a matched comparison, the implementation also applies the same
+For a matched comparison, we also apply the same
 fill--one-swap procedure without semantic priority. If that no-semantic
 result already attains $W^\star$, \Fname returns the same set unchanged.
 Otherwise, it refines the exact coverage witness and, when available, a
@@ -365,12 +375,11 @@ coordinator then trains
 \label{eq:shared_stacker}
 \end{equation}
 For the nonprivate configuration, the method sets
-$\widetilde\phi_{\widehat S}=\phi_{\widehat S}$. Although the implementation
-may cache a full aligned block matrix for efficiency, both configurations use
-only the columns indexed by $\widehat S$. Unselected blocks therefore cannot
-affect the learned classifier.
+$\widetilde\phi_{\widehat S}=\phi_{\widehat S}$. Both configurations use only
+the columns indexed by $\widehat S$. Unselected blocks therefore cannot affect
+the learned classifier.
 
-The optional centralized sensitivity mode samples
+The centralized sensitivity experiment samples
 Eq.~\ref{eq:local_laplace_release} after selection to measure the effect of
 noise. A distributed realization samples the same noise privately at each
 client. At sealed-test inference, the method uses the same selected layout and
@@ -514,11 +523,9 @@ inclusion follows from $R_i\le R_i^+$. Thus, if one primary-optimal witness
 over $\mathcal R^0$ lies entirely in $\mathcal R^-$, calibration preserves
 the population-mixture primary value.
 
-With the registered profile's $\tau_L=1$, the upper-confidence gate acts as a
+With $\tau_L=1$, the upper-confidence gate acts as a
 finite-sample admissibility screen over normalized Brier risk. We therefore
 refer to $\widehat{\mathcal R}$ as the calibration-eligible pool.
-% TODO(author): A preregistered tau_L<1 experiment would add an
-% application-specific population-risk threshold.
 
 \subsection{Exact Primary Coverage under a Hard Budget}
 
@@ -529,8 +536,8 @@ and its exact solver.
 \begin{theorem}[Primary hardness and exact parameterized solver]
 \label{thm:primary_solver}
 Computing $W^\star$ is NP-hard, even when every candidate is eligible, every
-cost is one, and all class weights are uniform. Nevertheless, if the
-registered state cap is not exceeded, the bitmask dynamic program returns a
+cost is one, and all class weights are uniform. Nevertheless, the bitmask
+dynamic program returns a
 nonempty feasible set $S_0$ with
 \begin{equation}
 C_{\mathrm{sem}}(S_0)=W^\star.
@@ -558,14 +565,13 @@ Scanning the budget-feasible masks returns exactly $W^\star$.
 
 A $C$-bit mask has at most $2^C$ values, and each eligible candidate extends
 each current mask at most once. When all attainable masks have value zero,
-the implementation returns the least-cost feasible singleton, which enforces
+the solver returns the least-cost feasible singleton, which enforces
 the nonempty stacker input without changing the primary value.
 \end{proof}
 
-The current Python implementation additionally stores, copies, and sorts
-complete witness tuples, so its wall-clock time includes work beyond the state
-transition count. A requirement above $10^6$ states triggers an explicit
-capacity error, preserving the exact-solver contract.
+The transition bound excludes witness reconstruction and sorting overhead.
+We restrict the evaluated solver to at most $10^6$ states. The exactness
+guarantee applies to every instance processed within this limit.
 
 \subsection{Secondary Objective and Local Refinement}
 
@@ -611,7 +617,7 @@ Although $\Phi$ is monotone submodular, the equal-primary family
 \end{equation}
 is not downward closed and need not satisfy an exchange axiom. Therefore,
 standard monotone-submodular knapsack guarantees, including $1-1/e$, do not
-apply to the production secondary stage.
+apply to the secondary refinement stage.
 
 For $S\in\mathcal F^\star$, let $\mathcal N_1(S)$ contain every set obtained
 by removing exactly one selected candidate and adding exactly one unselected
@@ -619,7 +625,7 @@ candidate while preserving budget feasibility and $W^\star$.
 
 \begin{theorem}[Coverage preservation and one-swap certificate]
 \label{thm:local_refinement}
-If the primary dynamic program returns normally, the production refinement
+Given an exact primary solution, the refinement procedure
 terminates after finitely many accepted operations and returns
 $\widehat S\in\mathcal F^\star$ such that
 \begin{equation}
@@ -633,7 +639,7 @@ $\widehat S\in\mathcal F^\star$ such that
 \begin{proof}
 The constrained seed has coverage $W^\star$. Because
 $C_{\mathrm{sem}}$ is monotone and $W^\star$ is already maximal, every
-feasible fill keeps that value. The implementation separately checks every
+feasible fill keeps that value. The algorithm checks every
 accepted replacement for budget feasibility and equality to $W^\star$.
 Each accepted operation also increases $\Phi$ by more than
 $\varepsilon_{\mathrm{loc}}$. Because the candidate pool has only finitely
@@ -643,8 +649,8 @@ whose gain exceeds the tolerance, which proves
 Eq.~\ref{eq:one_swap_certificate}.
 \end{proof}
 
-The certificate covers the production neighborhood of
-coverage-preserving one-for-one replacements. The fill stage ranks candidates
+The certificate covers the one-swap neighborhood explored by the refinement
+procedure. The fill stage ranks candidates
 by gain per byte and stops when the chosen candidate's absolute gain falls
 below tolerance; broader additions and multi-candidate exchanges remain
 separate optimization choices.

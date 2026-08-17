@@ -14,13 +14,13 @@ names = {'ddos': 'DDoS', 'maldroid': 'MalDroid', 'darknet': 'Darknet', 'doh': 'D
 lines = [
     r'\begin{table*}[t]',
     r'    \centering',
-    r'    \caption{We report complete single machine replay time and logical protocol bytes at the 50\% budget. Times are means over five splits. The final column reports the macro F1 loss relative to the full detector pool.}',
+    r'    \caption{We report the time required to evaluate every selection rule and budget on one machine, together with total logical communication at the 50\% selection cost budget. Times are means over five splits. The final column reports the macro F1 loss relative to the full detector pool.}',
     r'    \label{tab:eval-system-cost}',
     r'    \small',
     r'    \setlength{\tabcolsep}{4.2pt}',
     r'    \begin{tabular}{@{}lrlrrrr@{}}',
     r'        \toprule',
-    r'        Dataset & \makecell{Replay\\time (min)} & Dominant stage & \makecell{Full pool\\(MiB)} & \makecell{\Fname\\(MiB)} & \makecell{Logical bytes\\saved} & \makecell{Macro F1\\loss} \\',
+    r'        Dataset & \makecell{Runtime\\(min)} & Dominant stage & \makecell{Full pool\\(MiB)} & \makecell{\Fname\\(MiB)} & \makecell{Communication\\saved} & \makecell{Macro F1\\loss} \\',
     r'        \midrule',
 ]
 

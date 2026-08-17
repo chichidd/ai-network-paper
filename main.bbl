@@ -30,8 +30,10 @@
 {Microsoft}, ``{Microsoft Entra} data retention,'' Microsoft Learn, 2026, accessed: Aug. 10, 2026. [Online]. Available: \url{https://learn.microsoft.com/en-us/entra/identity/monitoring-health/reference-reports-data-retention}
 \BIBentrySTDinterwordspacing
 
-\bibitem{nist2023airmf}
-E.~Tabassi, ``Artificial intelligence risk management framework ({AI RMF} 1.0),'' National Institute of Standards and Technology, Tech. Rep. {NIST AI} 100-1, 2023.
+\bibitem{yang2021cade}
+\BIBentryALTinterwordspacing
+L.~Yang, W.~Guo, Q.~Hao, A.~Ciptadi, A.~Ahmadzadeh, X.~Xing, and G.~Wang, ``{CADE}: Detecting and explaining concept drift samples for security applications,'' in \emph{30th USENIX Security Symposium (USENIX Security 21)}.\hskip 1em plus 0.5em minus 0.4em\relax USENIX Association, 2021, pp. 2327--2344. [Online]. Available: \url{https://www.usenix.org/conference/usenixsecurity21/presentation/yang-limin}
+\BIBentrySTDinterwordspacing
 
 \bibitem{federated_learning}
 \BIBentryALTinterwordspacing
