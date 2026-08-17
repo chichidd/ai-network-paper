@@ -9,11 +9,11 @@ objective, and derive its selection and privacy guarantees.
 \subsection{System Model}
 
 After local detector fitting has ended, $J$ clients expose a pool of $M$
-candidate detectors. Our experiments assign one candidate to each client,
-while the method allows $J$ and $M$ to vary independently. For candidate
+candidate detectors. In our experiments, each client contributes one candidate,
+while \Fname allows $J$ and $M$ to vary independently. For candidate
 $i$, let $p_i(x)\in\mathbb R^{h_i}$ denote its native probability output.
 Because different candidates may use different native label coordinates, the
-method validates a hard semantic map
+coordinator validates a hard semantic map
 \begin{equation}
 A_i\in\{0,1\}^{(C+1)\times h_i},
 \qquad
@@ -24,18 +24,20 @@ and forms
 q_i(x)=A_i p_i(x)\in\Delta^{C},
 \label{eq:aligned_output}
 \end{equation}
-where $\Delta^C$ is the probability simplex with $C+1$ coordinates. The
-first $C$ coordinates follow a frozen target ontology, whereas the last
-coordinate, denoted by $\bot$, collects unsupported outputs. Thus, any mass
-assigned to $\bot$ remains visible to every later Brier calculation.
+where $\Delta^C$ is the probability simplex with $C+1$ coordinates. We align
+the first $C$ coordinates with a frozen target ontology and reserve the last
+coordinate, denoted by $\bot$, for unsupported outputs. As a result, every
+later Brier calculation retains any mass assigned to $\bot$.
 
-Before selection begins, the method freezes every candidate, semantic map,
-and source-side class count. It also assigns disjoint record partitions to
-candidate fitting, selection calibration, stacker fitting, and sealed testing.
-Because test labels remain unopened until both the selected set and stacker
-have been frozen, they cannot affect calibration, cost, or selection.
+Before selection begins, the coordinator holds a labeled calibration set
+$\mathcal D^{\rm cal}$ from the current deployment domain. We keep this set
+disjoint from the records used for candidate fitting, stacker fitting, and sealed
+testing. Before evaluating the candidates, the coordinator also freezes every
+candidate, semantic map, and source-side class count. Because test labels
+remain unopened until both the selected set and stacker have been frozen, they
+cannot affect calibration, cost, or selection.
 
-The selection stage uses a logical cost for each selected candidate. Let
+To enforce the budget, \Fname assigns each selected candidate a logical cost. Let
 $K_i$ be candidate $i$'s serialized size, let $B_t$ be the number of
 stacker-fit records, and let $d$ be the logical byte width of one probability
 element. For a selected set $S$, define
@@ -45,16 +47,18 @@ C_{\mathrm{sel}}(S)=\sum_{i\in S}b_i,
 b_i=J K_i+dB_t(C+1).
 \label{eq:candidate_cost}
 \end{equation}
-The first term delivers a selected candidate to $J$ clients, and the second
-uploads one aligned probability block per stacker-fit record. Given a budget
-fraction $\beta$, we set
+To account for the two communication steps, we use the first term for
+delivering a selected candidate to $J$ clients and the second for uploading
+one aligned probability block per stacker-fit record. Given a budget fraction
+$\beta$, we set
 \begin{equation}
 B=\left\lfloor\beta\sum_{i=1}^{M}b_i\right\rfloor.
 \label{eq:logical_budget}
 \end{equation}
-The denominator contains every candidate, including those that may later fail
-calibration. The total logical communication measured in the evaluation also
-includes the initial candidate upload and the stacker label upload:
+When setting this budget, we include every candidate in the denominator,
+including those that may later fail calibration. To report complete logical
+communication, we also include the initial candidate upload and the stacker
+label upload:
 \begin{equation}
 C_{\mathrm{total}}(S)=\sum_{i=1}^{M}K_i+C_{\mathrm{sel}}(S)+dB_t.
 \label{eq:total_logical_communication}
@@ -68,14 +72,15 @@ With the aligned detector pool and logical budget defined, we next specify
 what the selector should optimize.
 
 If the coordinator ranks candidates only by average current utility, it may
-omit the sole contributor that supports an important class. Source-side
-support alone has the opposite weakness: it can retain candidates whose
-current probabilities are weak or redundant. A scalar tradeoff can exchange a
-positive coverage loss for enough secondary gain, so the method gives weighted
+omit the sole contributor that supports an important class. By contrast, when
+the coordinator relies only on source-side support, it can retain candidates
+whose current probabilities are weak or redundant. If the coordinator combines
+the two criteria into one scalar score, it may exchange a positive coverage
+loss for enough secondary gain. For this reason, \Fname gives weighted
 source-side coverage strict priority and compares current behavior only after
-that primary value has been fixed.
+fixing that primary value.
 
-Accordingly, the intended target is
+With that priority fixed, \Fname targets
 \begin{equation}
 \operatorname{lexmax}_{\varnothing\ne S\subseteq\widehat{\mathcal R}}
 \left(C_{\mathrm{sem}}(S),\Phi(S)\right)
@@ -85,29 +90,29 @@ Accordingly, the intended target is
 \end{equation}
 Here, $\widehat{\mathcal R}$ contains candidates that pass calibration,
 $C_{\mathrm{sem}}$ measures their weighted source support, and $\Phi$
-summarizes current predictive evidence. The following sections define each
-quantity. Equation~\ref{eq:lexicographic_target} specifies the decision order.
-The primary solver computes its first coordinate exactly and refines the
-secondary coordinate heuristically. Only the optional small-pool exhaustive
-solver computes the complete lexicographic optimum.
+summarizes current predictive evidence. To make the decision order explicit,
+we use Equation~\ref{eq:lexicographic_target}. We compute its first coordinate
+exactly with the primary solver and refine the secondary coordinate
+heuristically. By contrast, the optional small-pool exhaustive solver is the
+only solver that computes the complete lexicographic optimum.
 
 \subsection{Execution and Analysis Model}
 \label{sec:information_boundary}
 
 We next specify the execution model and privacy setting used by the analysis.
 
-We evaluate the workflow in a centralized simulation.
-Figure~\ref{fig:workflow} encodes the protocol's logical
-data dependencies. In a client-side realization, each client perturbs its
+We evaluate the workflow in a centralized simulation. To make the protocol's
+logical data dependencies explicit, we use Figure~\ref{fig:workflow}. In a
+client-side realization, each client perturbs its
 selected probability blocks with fresh private Laplace randomness before
-upload. The optional sensitivity mode samples the same distribution centrally
-to measure utility.
+upload. In the optional sensitivity mode, we sample the same distribution
+centrally to measure utility.
 
-The privacy analysis uses public labels and protects the randomized score
-blocks used to fit the stacker. It assumes immutable candidate detectors,
+For the privacy analysis, we use public labels and protect the randomized score
+blocks used to fit the stacker. We assume immutable candidate detectors,
 structurally validated semantic maps, honest source-support reports, and fresh
-client-side randomness. These assumptions define the cooperative-client
-execution model analyzed below.
+client-side randomness. Under these assumptions, we analyze the cooperative
+client execution model below.
 
 \section{Design of \Fname}
 \label{sec:approach}
@@ -122,19 +127,21 @@ selects a budget-feasible detector set, and trains one shared stacker.
     then uses selection-calibration records to form the eligible pool, obtains
     the exact maximum weighted semantic coverage under the logical budget, and
     performs coverage-preserving local secondary refinement. Finally, selected
-    aligned probability blocks train one shared stacker and support inference.
-    Arrows encode the protocol's logical data dependencies.}
+    aligned probability blocks allow \Fname to train one shared stacker and
+    support inference. In the diagram, arrows show the protocol's logical data
+    dependencies.}
     \label{fig:workflow}
 \end{figure*}
 
 \subsection{Selection and Stacking Workflow}
 
-Figure~\ref{fig:workflow} separates the records used for detector selection
-from those used for stacker fitting. Calibration outputs determine eligibility
-and the selected set, whereas stacker-fit features and score blocks do not
-enter selection. Clients use them only after that set has been frozen and then
-upload only the selected aligned blocks, optionally perturbed, and their
-labels; no contributed detector is updated.
+To distinguish the records used for detector selection from those used for
+stacker fitting, we use Figure~\ref{fig:workflow}. Because stacker-fit features
+and score blocks do not enter selection, the coordinator uses calibration
+outputs to determine eligibility and the selected set. Once the coordinator
+freezes that set, clients use the stacker-fit records and upload only the
+selected aligned blocks, optionally perturbed, and their labels. Throughout
+stacking, every contributed detector remains frozen.
 
 With these stages in place, Algorithm~\ref{alg:silostitch} summarizes the
 complete client--server procedure, while the following subsections define
@@ -183,12 +190,12 @@ with the complete aligned output and define
 g_{i,t}=1-\ell_{i,t}\in[0,1].
 \label{eq:brier_utility}
 \end{equation}
-Thus, $g_{i,t}$ is one full-vector Brier utility rather than a collection of
-coordinate-wise scores.
+As a result, we treat $g_{i,t}$ as one full-vector Brier utility rather than a
+collection of coordinate-wise scores.
 
 \bheading{Eligibility screening} To screen out candidates whose average
 current loss is either too large or too
-uncertain, the method uses $N$ calibration records and failure level
+uncertain, we use $N$ calibration records and failure level
 $\delta\in(0,1)$ to compute
 \begin{equation}
 \widehat\mu_i=\frac1N\sum_{t=1}^{N}g_{i,t},
@@ -196,28 +203,28 @@ $\delta\in(0,1)$ to compute
 r=\sqrt{\frac{\log(4M/\delta)}{2N}},
 \label{eq:overall_calibration}
 \end{equation}
-and admits candidate $i$ only if
+and admit candidate $i$ only if
 \begin{equation}
 R_i^+=1-\widehat\mu_i+r\le\tau_L.
 \label{eq:risk_gate}
 \end{equation}
-Accordingly, the calibration-eligible pool is
+After applying this gate, we define the calibration-eligible pool as
 \begin{equation}
 \widehat{\mathcal R}=\{i:R_i^+\le\tau_L\}.
 \label{eq:eligible_pool}
 \end{equation}
-Thus, eligibility depends on an upper confidence bound on risk rather than on
-empirical utility alone.
+As a result, we base eligibility on an upper confidence bound on risk rather
+than on empirical utility alone.
 
-\bheading{Classwise evidence} Average eligibility does not preserve
-class-specific evidence for later
-refinement and certification. For class $c$, let
+\bheading{Classwise evidence} When we rely on average eligibility alone, we
+lose the class-specific evidence needed for later refinement and
+certification. For class $c$, let
 $N_c=\sum_t\mathbf 1\{y_t=c\}$ and
 \begin{equation}
 \widehat\mu_{i,c}=\frac1{N_c}\sum_{t:y_t=c}g_{i,t}.
 \end{equation}
-Because the protocol requires every calibration class to occur, $N_c>0$.
-The class-conditional radius and lower utility are
+Because \Fname requires every calibration class to occur, $N_c>0$.
+We then compute the class-conditional radius and lower utility as
 \begin{equation}
 r_c=\sqrt{\frac{\log(4MC/\delta)}{2N_c}},
 \qquad
@@ -225,12 +232,12 @@ a_{i,c}=\left[\widehat\mu_{i,c}-r_c\right]_+,
 \label{eq:class_lower_utility}
 \end{equation}
 where $[z]_+=\max\{0,z\}$.
-Hence, $a_{i,c}$ is the class-specific lower score used by the secondary
-objective and the effective-coverage certificate.
+For the secondary objective and the effective-coverage certificate, we use
+$a_{i,c}$ as the class-specific lower score.
 
-\bheading{Behavioral similarity} Two eligible candidates can still behave
-almost identically. To measure this
-redundancy, the method deterministically selects a class-stratified anchor set
+\bheading{Behavioral similarity} Because two eligible candidates can still
+behave almost identically, \Fname measures this redundancy on a
+deterministically selected class-stratified anchor set
 $\mathcal A$ and forms
 \begin{equation}
 z_i=\operatorname{vec}\left([q_i(x_t)]_{t\in\mathcal A}\right),
@@ -246,8 +253,8 @@ not as a pairwise-diversity score.
 
 \subsection{Coverage-Prioritized Detector Selection}
 
-Calibration now supplies the evidence needed for budgeted selection. We first
-define the primary support objective.
+Once \Fname has calibrated the candidates, we define the primary support
+objective for budgeted selection.
 
 \bheading{Weighted semantic coverage} For candidate $i$ and target class $c$,
 let $H_{i,c}$ be the accepted
@@ -272,13 +279,13 @@ C_{\mathrm{sem}}(S)=
 \mathbf 1\{\exists i\in S:\Gamma_{i,c}=1\}.
 \label{eq:semantic_coverage}
 \end{equation}
-The $\bot$ coordinate never contributes to this coverage. Consequently,
-$C_{\mathrm{sem}}$ measures the breadth of declared source support rather than
-current predictive accuracy.
+Because the $\bot$ coordinate represents unsupported outputs, we exclude it
+from this coverage. Consequently, $C_{\mathrm{sem}}$ measures the breadth of
+declared source support rather than current predictive accuracy.
 
-\bheading{Secondary behavioral objective} Only after fixing semantic coverage
-does the method compare current
-predictive behavior. With $h_\tau(z)=1-e^{-z/\tau}$, define
+\bheading{Secondary behavioral objective} After \Fname fixes semantic
+coverage, it compares current predictive behavior. With
+$h_\tau(z)=1-e^{-z/\tau}$, define
 \begin{align}
 U(S)
 &=\frac1N\sum_{t=1}^{N}
@@ -294,12 +301,13 @@ D_{\mathrm{rep}}(S)
 \max_{i\in S}\kappa_{i,k}.
 \label{eq:secondary_components}
 \end{align}
-Here, $U$ summarizes record-level utility, $C_{\mathrm{pred}}$ summarizes
-conservative classwise evidence, and $D_{\mathrm{rep}}$ rewards behavior that
-represents the eligible pool.
+To interpret the three terms, we use $U$ to summarize record-level utility,
+$C_{\mathrm{pred}}$ to summarize conservative classwise evidence, and
+$D_{\mathrm{rep}}$ to reward behavior that represents the eligible pool.
 Here and throughout the analysis, we set
 $\max_{i\in\varnothing}\kappa_{i,k}=0$.
-Unlike $C_{\mathrm{sem}}$, $C_{\mathrm{pred}}$ averages classes uniformly.
+For $C_{\mathrm{pred}}$, we average classes uniformly, whereas
+$C_{\mathrm{sem}}$ uses source support weights.
 After fixing nonnegative weights that sum
 to one, the secondary objective is
 \begin{equation}
@@ -307,7 +315,8 @@ to one, the secondary objective is
 +\lambda_D D_{\mathrm{rep}}(S).
 \label{eq:secondary_objective}
 \end{equation}
-This score is used only after semantic coverage has been fixed.
+After fixing semantic coverage, we use this score only for the secondary
+comparison.
 
 \bheading{Budgeted selection procedure} We therefore define the feasible
 family and its optimal primary value as
@@ -321,9 +330,9 @@ W^\star&=\max_{S\in\mathcal F_B}C_{\mathrm{sem}}(S).
 \end{aligned}
 \label{eq:primary_value}
 \end{equation}
-To compute $W^\star$, the primary solver encodes every $\Gamma_i$ as a
-$C$-bit mask and uses a sparse dynamic program to recover a least-cost witness.
-It then spends any remaining budget through density-based fill and accepts a
+To compute $W^\star$, we encode every $\Gamma_i$ as a $C$-bit mask and use a
+sparse dynamic program to recover a least-cost witness. After recovering the
+witness, we spend any remaining budget through density-based fill and accept a
 one-for-one replacement only when the change preserves $W^\star$ and improves
 $\Phi$ by more than the fixed tolerance $\varepsilon_{\mathrm{loc}}$.
 
@@ -332,13 +341,13 @@ fill--one-swap procedure without semantic priority. If that no-semantic
 result already attains $W^\star$, \Fname returns the same set unchanged.
 Otherwise, it refines the exact coverage witness and, when available, a
 coverage-optimal singleton seed, then returns the better locally refined
-result. Thus, when the semantic constraint is inactive, both variants return
-the same set; they differ only when semantic priority changes the refinement
-path.
+result. When the semantic constraint is inactive, both variants therefore
+return the same set. Only when semantic priority changes the refinement path
+do they differ.
 
 \subsection{Shared Stacker Learning}
 
-After the selector fixes $\widehat S$, the selected representation is
+After the selector fixes $\widehat S$, we represent an input $x$ as
 \begin{equation}
 \phi_{\widehat S}(x)=
 \operatorname{concat}_{i\in\widehat S}q_i(x)
@@ -363,9 +372,8 @@ We write the perturbed representation as
 \label{eq:private_selected_representation}
 \end{equation}
 
-\bheading{Shared stacker fitting} Using the independent stacker-fit partition
-$\mathcal D^{\mathrm{stk}}$, the
-coordinator then trains
+\bheading{Shared stacker fitting} Once the independent stacker-fit partition
+$\mathcal D^{\mathrm{stk}}$ is available, the coordinator trains
 \begin{equation}
 \widehat f_{\widehat S}=\mathsf{Fit}_{\mathrm{global}}
 \left(
@@ -374,16 +382,16 @@ coordinator then trains
 \right).
 \label{eq:shared_stacker}
 \end{equation}
-For the nonprivate configuration, the method sets
-$\widetilde\phi_{\widehat S}=\phi_{\widehat S}$. Both configurations use only
-the columns indexed by $\widehat S$. Unselected blocks therefore cannot affect
+For the nonprivate configuration, we set
+$\widetilde\phi_{\widehat S}=\phi_{\widehat S}$. Because both configurations
+use only the columns indexed by $\widehat S$, unselected blocks cannot affect
 the learned classifier.
 
-The centralized sensitivity experiment samples
-Eq.~\ref{eq:local_laplace_release} after selection to measure the effect of
-noise. A distributed realization samples the same noise privately at each
-client. At sealed-test inference, the method uses the same selected layout and
-leaves every contributed detector unchanged.
+To measure the effect of noise, we sample from
+Eq.~\ref{eq:local_laplace_release} after selection in the centralized
+sensitivity experiment. In a distributed realization, each client samples the
+same noise privately. During sealed-test inference, \Fname uses the same
+selected layout and leaves every contributed detector unchanged.
 
 \section{Theoretical Analysis}
 \label{sec:method_analysis}
@@ -399,12 +407,12 @@ We first analyze the privacy of the score blocks randomized before upload.
 
 We fix the selected set before observing any stacker-fit record and treat each
 record label as public. Accordingly, $(x,y)$ and $(x',y)$ are adjacent only
-when their feature vectors differ. This label-fixed relation is necessary
-because Algorithm~\ref{alg:silostitch} uploads $y$ without perturbation. For a
+when their feature vectors differ. Because Algorithm~\ref{alg:silostitch}
+uploads $y$ without perturbation, we use this label-fixed relation. For a
 batched upload, adjacent batches have the same size, row alignment, and label
-sequence, and they differ in exactly one feature vector. Each client samples
-noise independently across records, selected detector blocks, and output
-coordinates.
+sequence, and they differ in exactly one feature vector. To keep randomization
+independent across records, selected detector blocks, and output coordinates,
+each client samples noise independently across all three dimensions.
 
 \begin{theorem}[Label-conditional local score privacy]
 \label{thm:local_score_privacy}
@@ -431,19 +439,21 @@ this bound unchanged. Appending the unchanged public labels does not alter the
 density ratio.
 \end{proof}
 
-Thus, a total per-record score budget $\epsilon$ can be obtained by assigning
-$\epsilon_b=\epsilon/s$ to each block, which changes the noise scale to
-$2s/\epsilon$. This is a label-conditional, record-level guarantee for the
-randomized score upload. Repeated uploads compose across rounds.
+By assigning $\epsilon_b=\epsilon/s$ to each block, which changes the noise
+scale to $2s/\epsilon$, we obtain a total per-record score budget $\epsilon$.
+Together, these releases give a label-conditional, record-level guarantee for
+the randomized score upload. Across repeated uploads, the privacy parameters
+compose across rounds.
 
 \subsection{Calibration under Heterogeneous Clients}
 
-The privacy result concerns the fit partition, whereas detector eligibility
-depends on separate calibration records. We therefore analyze those
+Because the privacy guarantee concerns the fit partition, we evaluate detector
+eligibility on separate calibration records. We therefore analyze those
 statistics next.
 
-Because calibration records can originate from different clients and
-classes, we condition on both the observed client--label design
+Although the coordinator holds $\mathcal D^{\rm cal}$, its records may
+represent different clients and classes. We therefore condition on both the
+observed client--label design
 $\mathcal I=\{(j_t,y_t)\}_{t=1}^{N}$ and the candidate pool $\mathcal Q$
 frozen by the preceding fit stage. We assume that calibration records are
 conditionally independent given $(\mathcal Q,\mathcal I)$, although their
@@ -460,8 +470,8 @@ and
 \mathbb E[g_{i,t}\mid\mathcal Q,\mathcal I].
 \label{eq:heterogeneous_class_mean}
 \end{equation}
-Thus, these quantities describe the record-weighted calibration mixture
-rather than equal-client or worst-client performance.
+Rather than describing equal-client or worst-client performance, the resulting
+means describe the record-weighted calibration mixture.
 
 \begin{theorem}[Simultaneous calibration]
 \label{thm:simultaneous_calibration}
@@ -529,9 +539,9 @@ refer to $\widehat{\mathcal R}$ as the calibration-eligible pool.
 
 \subsection{Exact Primary Coverage under a Hard Budget}
 
-The simultaneous event validates the statistics used to form the eligible
-pool. With that pool fixed, we now characterize the primary selection problem
-and its exact solver.
+On the simultaneous calibration event, the bounds above constrain the
+statistics used to form the eligible pool. With that pool fixed, we
+characterize the primary selection problem and its exact solver.
 
 \begin{theorem}[Primary hardness and exact parameterized solver]
 \label{thm:primary_solver}
@@ -569,25 +579,24 @@ the solver returns the least-cost feasible singleton, which enforces
 the nonempty stacker input without changing the primary value.
 \end{proof}
 
-The transition bound excludes witness reconstruction and sorting overhead.
-We restrict the evaluated solver to at most $10^6$ states. The exactness
-guarantee applies to every instance processed within this limit.
+Because the transition count excludes witness reconstruction and sorting
+overhead, we restrict the evaluated solver to at most $10^6$ states. The
+exactness guarantee applies to every instance processed within this limit.
 
 \subsection{Secondary Objective and Local Refinement}
 
-The primary solver determines $W^\star$. The remaining question is how the
-method compares feasible sets that attain this value.
+After the primary solver fixes $W^\star$, we compare feasible sets that attain
+this value.
 
 Let $\mathcal V=\{C_{\mathrm{sem}}(S):S\in\mathcal F_B\}$ contain the
 attainable primary values. When $\mathcal V$ has at least two values, let
 $\Delta_{\mathrm{inst}}$ be its smallest positive gap. Because
 $0\le\Phi(S)\le1$, any coefficient $K>1/\Delta_{\mathrm{inst}}$ is sufficient
 to make every maximizer of $KC_{\mathrm{sem}}+\Phi$ lexicographic for that
-fixed instance. Normalized class weights can make the smallest positive
-coverage gap arbitrarily small, so a universal finite coefficient is
-unavailable. The strict order in
-Eq.~\ref{eq:lexicographic_target} does not require instance-specific scale
-tuning.
+fixed instance. Because normalized class weights can make the smallest positive
+coverage gap arbitrarily small, no universal finite coefficient is available.
+By using the strict order in
+Eq.~\ref{eq:lexicographic_target}, we avoid instance-specific scale tuning.
 
 \begin{proposition}[Secondary structure]
 \label{prop:secondary_structure}
@@ -606,7 +615,7 @@ $\max_{i\in S}\kappa_{i,k}$, whose marginal gain is
 \[
 \max\{0,\kappa_{a,k}-\max_{i\in S}\kappa_{i,k}\}.
 \]
-This gain also cannot increase as $S$ grows. Averaging and taking a
+As $S$ grows, this gain also cannot increase. Averaging and taking a
 nonnegative weighted sum preserve all three properties.
 \end{proof}
 
@@ -649,20 +658,20 @@ whose gain exceeds the tolerance, which proves
 Eq.~\ref{eq:one_swap_certificate}.
 \end{proof}
 
-The certificate covers the one-swap neighborhood explored by the refinement
-procedure. The fill stage ranks candidates
-by gain per byte and stops when the chosen candidate's absolute gain falls
-below tolerance; broader additions and multi-candidate exchanges remain
-separate optimization choices.
+Because the refinement procedure explores only one-swap neighbors, its
+certificate covers only that neighborhood. During the fill stage, the
+procedure ranks candidates by gain per byte and stops when the chosen
+candidate's absolute gain falls below tolerance; broader additions and
+multi-candidate exchanges remain separate optimization choices.
 
 \subsection{Effective Coverage under Client Mixture Shift}
 
-The preceding results treat declared support and current predictive behavior
-as separate quantities. We now ask when the former is backed by the latter
-and how that relation changes under client-mixture shift.
+Although the preceding results separate declared support from current
+predictive behavior, we now ask when current behavior backs the declared
+support and how client-mixture shift changes that relationship.
 
-We use the following quantities as post-selection certificates for the frozen
-returned set, reusing statistics already computed during calibration.
+To obtain post-selection certificates for the frozen returned set, we reuse
+statistics already computed during calibration.
 
 To test whether declared source support is backed by current evidence, let
 $\vartheta_c\in[0,1]$ be a prespecified current-competence threshold and define
@@ -673,8 +682,8 @@ C_{\mathrm{cert}}(S;\boldsymbol\vartheta)=
 \Gamma_{i,c}=1\ \wedge\ a_{i,c}\ge\vartheta_c\}.
 \label{eq:certified_coverage}
 \end{equation}
-Thus, a class contributes only when a selected detector provides both declared
-source support and a conservative current-utility score.
+Under this rule, a class contributes only when a selected detector provides
+both declared source support and a conservative current-utility score.
 For comparison, let $C_\mu^a(S;\boldsymbol\vartheta)$ replace
 $a_{i,c}\ge\vartheta_c$ by
 $\mu_{i,c}^a\ge\vartheta_c$, where
@@ -741,10 +750,10 @@ any $[0,1]$-valued function. Applying this bound to the cell risks yields
 Eq.~\ref{eq:risk_mixture_shift}.
 \end{proof}
 
-Thus, $C_{\mathrm{cert}}$ connects the historical class support of selected
-detectors with current class-conditional Brier utility under client-mixture
-shift. The executed selector uses $C_{\mathrm{sem}}$ and $\Phi$;
-$C_{\mathrm{cert}}$ and the mixture-sensitivity bound are derived analysis
-quantities for the frozen returned set.
+By requiring both historical class support and current class-conditional Brier
+utility, $C_{\mathrm{cert}}$ connects the two under client-mixture shift.
+During selection, \Fname optimizes $C_{\mathrm{sem}}$ and $\Phi$. After
+selection, $C_{\mathrm{cert}}$ and the mixture-sensitivity bound analyze the
+frozen returned set.
 
 \endgroup

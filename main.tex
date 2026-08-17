@@ -80,27 +80,31 @@
 \maketitle
 
 \begin{abstract}
-Organizations may retain intrusion detectors after storage or retention
-policies remove the records that trained them. When a deployment cannot
-afford the entire retained pool, a ranking based only on current average
-utility can omit the sole feasible detector that supports an important attack
-class. Yet historical support alone cannot show whether a detector remains
-competent. We present \Fname, which integrates unchanged pretrained detectors
-under a hard logical byte budget. Before selection, the method aligns each
-detector's probability outputs and uses records reserved for calibration to
-assess current performance. The coordinator then uses dynamic programming to
-maximize weighted source class support exactly and compares
-current behavior only among sets that attain this value.
+Even after storage or retention policies remove historical traffic records,
+organizations may retain the intrusion detectors trained on them. When the
+coordinator cannot afford the entire retained pool, it may omit the sole
+feasible detector that supports an important attack class if it ranks
+candidates only by current average utility. Yet we cannot infer a detector's
+current competence from historical support alone. To resolve this conflict,
+we present \Fname, which
+integrates unchanged pretrained detectors under a hard logical byte budget.
+Before selection, \Fname aligns each detector's probability outputs and uses
+records reserved for calibration to assess current performance. Under the
+budget, the coordinator uses dynamic programming to maximize weighted source
+class support exactly and compares current behavior only among sets that
+attain this value.
 After selection, the coordinator fits one shared stacker on a disjoint
-partition. Clients may add
-Laplace noise to selected score blocks before upload. We prove that
+partition. To protect score uploads, clients may add Laplace noise to selected
+score blocks before transmission. We prove that
 simultaneous calibration remains valid after adaptive selection and establish
-a local certificate for the secondary refinement. Under a neighboring
-relation that fixes the public label, the Laplace release gives each uploaded
-score block label conditional record level local differential privacy. Across
-four cybersecurity datasets, a 50\% target budget reduces logical payload by
-between 49.3\% and 50.4\%. At this budget, macro F1 stays within 0.0052 of the
-full pool on MalDroid, Darknet, and DoH, while DDoS shows a 0.0258 gap.
+a local certificate for the secondary refinement. When neighboring records
+share the same public label, the Laplace release provides record level local
+differential privacy for each uploaded score block conditional on that label.
+Across four
+cybersecurity datasets, we find that a 50\% target budget reduces logical
+payload by between 49.3\% and 50.4\%. At this budget, \Fname keeps macro F1
+within 0.0052 of the full pool on MalDroid, Darknet, and DoH, while DDoS shows
+a 0.0258 gap.
 \end{abstract}
 
 \IEEEpeerreviewmaketitle
@@ -112,76 +116,74 @@ Because storage or retention policies may remove historical traffic
 logs~\cite{acsc2024logging,microsoft2026retention}, operational networks often
 keep intrusion detectors longer than the records that trained them. As
 attackers and benign applications change their behavior, deployed security
-models face a shifting data distribution~\cite{yang2021cade}. Detectors from
-different organizations therefore retain different attack knowledge and
-current prediction behavior. Organizations could retrain the detectors collaboratively
-only if source data remained available and contributors permitted model
-updates~\cite{federated_learning,Fedprox,ditto2021}. We therefore study how
-organizations can integrate pretrained detectors while leaving their
-parameters unchanged.
+models face a shifting data distribution~\cite{yang2021cade}. Meanwhile,
+detectors from different organizations retain different attack knowledge and
+current prediction behavior. Although collaborative retraining could adapt
+these detectors, it requires source data to remain available and contributors
+to permit model updates~\cite{federated_learning,Fedprox,ditto2021}. Against
+this backdrop, we study how organizations can integrate pretrained detectors
+while leaving their parameters unchanged.
 
-When a deployment cannot run every contributed detector, the coordinator
-must choose a subset under a hard budget. It must pay to distribute each
+When the coordinator cannot run every contributed detector, it must choose a
+subset under a hard budget. It must pay to distribute each
 model and process its probability block. If the coordinator ranks detectors
 only by average current utility, it may omit the sole feasible model that
 supports a less frequent or important attack class. By contrast, if the
 coordinator relies only on historical source support, it may preserve nominal
 breadth with detectors that perform poorly or repeat behavior already chosen.
 
-To resolve this conflict, \Fname treats source support and current
-behavior as ordered decisions. The coordinator first preserves the largest
-weighted source class support that the budget permits. Only after it fixes
-that value does it compare current utility and representative behavior.
-Because an instance can contain an arbitrarily small positive support gap, no
-fixed weighted sum can enforce this priority for every candidate pool.
+To resolve this conflict, \Fname orders source support before current behavior.
+Under this order, the coordinator first preserves the
+largest weighted source class support that the budget permits. Only after it
+fixes that value does it compare current utility and representative behavior.
+Because a candidate pool can contain an arbitrarily small positive support gap,
+no fixed weighted sum can enforce this priority for every candidate pool.
 
 Before selection, each client reorganizes detector outputs into the same
-target class order and reserves one entry for unsupported labels. The method
-then uses records reserved for calibration to estimate overall utility,
-conservative class utility, and prediction behavior. At the same time, fixed
-source counts record which classes trained each detector, while a logical byte
-cost accounts for model delivery and the score block used by the shared
-stacker. These inputs keep historical support, current competence, and
-deployment cost separate.
+target class order and reserves one entry for unsupported labels. From the
+reserved calibration records, \Fname estimates overall utility, conservative
+class utility, and prediction behavior. At the same time, the coordinator uses
+fixed source counts to record which classes appeared in the data used to train
+each detector. A logical byte cost accounts for model delivery and the score
+block used by the shared stacker. Together, these inputs keep historical
+support, current competence, and deployment cost separate.
 
 After calibration, the coordinator rejects candidates that fail the
-eligibility gate. It uses dynamic programming to compute the best attainable
-source support exactly. It then refines current behavior without
-lowering that value and uses
-remaining capacity through feasible
-additions or single model replacements. Once selection ends, it trains one
-shared stacker on a disjoint fit partition of the selected probability
+eligibility gate. Next, it uses dynamic programming to compute the best
+attainable source support exactly. It then refines current behavior without
+lowering that value and uses remaining capacity through feasible additions or
+single model replacements. Once selection ends, it trains one shared stacker
+on a disjoint fit partition of the selected probability
 blocks~\cite{wolpert1992stacked}.
 
-Because the workflow reserves separate records for candidate fitting,
-selection calibration, stacker fitting, and sealed testing, test labels do
-not influence selection or training. When clients enable score protection,
+Because the coordinator uses separate records for candidate fitting, selection
+calibration, stacker fitting, and sealed testing, test labels do not influence
+selection or training. When clients enable score protection,
 they add fresh Laplace noise to each selected score block before upload. Under
-a neighboring relation that fixes the public label, this release gives each
-block label conditional record level local differential privacy and composes
-across the released blocks.
+a neighboring relation that fixes the public label, this release provides
+record level local differential privacy for each block conditional on that
+label and composes across the released blocks.
 
-We prove that simultaneous calibration remains valid after adaptive
-selection. The primary program attains the maximum weighted support. The
-refinement preserves
-that value and returns a locally stable set. We also characterize when current
-class utility continues to support historical class claims as the client mixture
-changes.
+We prove that simultaneous calibration remains valid after adaptive selection.
+During primary selection, the dynamic program
+attains the maximum weighted support. During refinement, the selector
+preserves that value and returns a locally stable set. We also characterize
+when current class utility continues to support historical class claims as the
+client mixture changes.
 
-We evaluate \Fname on four cybersecurity datasets with 66 candidate
-detectors per task. At a 50\% target budget, the method reduces logical
-payload by between 49.3\% and 50.4\%. It keeps macro F1 within 0.0052 of the
-full pool on MalDroid, Darknet, and DoH, while DDoS shows a 0.0258 gap. Across
-40 comparisons on small instances, the primary solver always matches exhaustive
-search. Across
-seven Laplace settings, the sensitivity experiment reveals how score
-randomization changes detection quality.
+Across four cybersecurity datasets, we evaluate \Fname on 66 candidate
+detectors per task. At a 50\% target budget, \Fname reduces logical payload by
+between 49.3\% and 50.4\%. At this budget, it keeps macro F1 within 0.0052 of
+the full pool on MalDroid, Darknet, and DoH, while DDoS shows a 0.0258 gap.
+Across 40 comparisons on small instances, we find that the primary solver
+always matches exhaustive search. Across seven Laplace settings, we measure
+how score randomization changes detection quality.
 
 We make three contributions.
 \begin{packeditemize}
     \item We formulate budgeted detector integration after training as an ordered decision that separates source class support from current predictive evidence.
     \item We design \Fname to align frozen detectors, compute the exact maximum weighted support, preserve that support during local refinement, and fit one shared stacker from optionally perturbed scores.
-    \item We establish calibration bounds that remain valid after adaptive selection, distinguish exact primary optimization from local secondary refinement, prove label conditional record level local differential privacy for uploaded score blocks, and analyze class support as the client mixture changes.
+    \item We establish calibration bounds that remain valid after adaptive selection, distinguish exact primary optimization from local secondary refinement, prove record level local differential privacy for uploaded score blocks conditional on the public label, and analyze class support as the client mixture changes.
 \end{packeditemize}
 
 
@@ -189,9 +191,9 @@ We make three contributions.
 
 \section{Background and Related Work}
 \label{sec:related}
-This section distinguishes post-training detector integration from
-collaborative retraining, reviews nearby integration and selection methods,
-and introduces the privacy notion used for score uploads.
+We first distinguish post-training detector integration from collaborative
+retraining, then review nearby integration and selection methods, and finally
+introduce the privacy notion used for score uploads.
 \input{new-background}
 \input{new-story-sections}
 \input{new-eval}
@@ -199,41 +201,43 @@ and introduces the privacy notion used for score uploads.
 
 \section{Discussion}\label{sec:discuss}
 
-The lexicographic objective answers two distinct deployment questions.
-Weighted semantic coverage specifies which source-side class support should
-remain whenever the budget permits. The secondary score distinguishes current
-prediction behavior only after the best attainable coverage has been fixed.
-An instance-specific scalarization can reproduce this order when its minimum
-positive coverage gap is known, but no universal finite coefficient works
-across arbitrary class weights and candidate pools. The ordered formulation
-therefore makes the intended priority explicit. Semantic coverage measures
-preserved source-side breadth, while class-conditional Brier lower bounds and
-sealed-test metrics measure current competence. The effective-coverage
-certificate connects these two views by requiring a selected, source-supported
-detector to exceed a deployment-specific class-utility threshold.
+By ordering source support before current utility, we answer two distinct
+deployment questions. Whenever the budget permits, the
+coordinator first preserves the best attainable weighted source support. Only
+after fixing this value does it compare current prediction behavior. For a
+fixed instance, a scalarization can reproduce this order when its minimum
+positive coverage gap is known. Across arbitrary class weights and candidate
+pools, however, no universal finite coefficient preserves the same order. We
+therefore use the lexicographic formulation to make the intended priority
+explicit. To separate breadth from competence, we use semantic coverage to
+measure preserved source breadth. We use Brier lower bounds conditioned on
+class and metrics on sealed test data to measure current competence. We then
+connect the two views by requiring a selected detector with source support to
+exceed a threshold for class utility.
 
 We set $\tau_L=1$, so the upper-confidence gate acts
-as a finite-sample admissibility screen over normalized Brier risk. The
-simultaneous calibration event remains valid after adaptive selection. Within
-the resulting pool, the bitmask dynamic program computes the exact primary
-value. Subsequent additions and single
-replacements preserve that value while providing a one-swap local certificate.
+as a finite-sample admissibility screen over normalized Brier risk. Because the
+calibration bound holds simultaneously across candidates, it remains valid
+after adaptive selection. Within the resulting pool, the coordinator uses a
+bitmask dynamic program to compute the exact primary value. After finding this
+value, the selector preserves it while testing feasible additions and single
+replacements, which provides a one-swap local certificate.
 
-Client heterogeneity determines the population described by the
-calibration statistics. Our experiments weight the mixture over client and
-class cells by their record counts. Under stable cell-conditional risks and a deployment
+Because clients contribute different numbers of records to each class, the
+calibration statistics describe a mixture weighted by those record counts.
+Under stable cell-conditional risks and a deployment
 mixture within total variation $\eta$ of the calibration mixture, deployment
-Brier risk is at most calibration risk plus $\eta$. The logical-byte budget
-then measures model delivery and aligned score communication consistently
-across all configurations.
+Brier risk is at most calibration risk plus $\eta$. Across all configurations,
+we use the logical communication budget to measure model delivery and aligned
+score communication consistently.
 
-The privacy protocol asks each client to perturb selected score blocks
-with fresh private Laplace randomness before upload. The theorem assigns
-$\epsilon_b$ to one block and composes to $s\epsilon_b$ for $s$ selected blocks
-of one record. Our centralized sensitivity experiment samples the same
-post-selection distribution and measures its utility over seven perturbation
-levels. A distributed realization places this randomization at each client as
-specified by the protocol.
+Before uploading selected score blocks, each client perturbs them with fresh
+private Laplace randomness. For a record with $s$ selected blocks, assigning
+$\epsilon_b$ to each block composes to $s\epsilon_b$. To quantify the resulting
+utility change, our centralized sensitivity experiment samples the same
+post-selection distribution across
+seven perturbation levels. In a distributed deployment, each client performs
+the same randomization before upload.
 
 
 %Moreover, stronger privacy-enhancing techniques like homomorphic encryption~\cite{acar2018survey} can be implemented together with \Fname to offer stronger privacy protections.
@@ -249,17 +253,18 @@ specified by the protocol.
 
 \section{Conclusion}
 \label{sec:conclusion}
-In summary, \Fname integrates pretrained intrusion detectors under a
-hard logical-byte budget without changing their parameters. It aligns their
+In summary, we use \Fname to integrate pretrained intrusion detectors under a
+hard logical communication budget without changing their parameters. It aligns their
 outputs, screens candidates with held-out calibration data, uses exact dynamic
 programming to maximize weighted semantic coverage, and refines
-current utility and representativeness while preserving that value. Across
-four datasets, the 50\% target budget cuts logical payload by 49.3--50.4\% and
-closely tracks all-encoder Macro-F1 on MALDROID, DARKNET, and DOH. The selected
-detectors feed one shared stacker, and client-side Laplace randomization gives
-label-conditional local privacy to uploaded score blocks. Together, the
-calibration, solver, privacy, and client-mixture results make post-training
-detector integration a principled choice under deployment constraints.
+current utility and representativeness while preserving that value. With a
+50\% target budget, \Fname cuts logical payload by 49.3\% to 50.4\% and closely
+tracks the full pool's macro F1 on MALDROID, DARKNET, and DOH. After selection,
+one shared stacker learns from the retained detector outputs, while clients use
+Laplace randomization to provide record level local differential privacy for
+uploaded score blocks conditional on the public label. Together, these results
+show how \Fname enables detector integration after training under deployment
+constraints.
 
 
 

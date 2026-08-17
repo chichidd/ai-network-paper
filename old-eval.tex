@@ -281,17 +281,17 @@ In \figurename~\ref{fig:data_selection}, we present the accuracy for different t
 
 After selected encoders, the size of encoding data is also reduced, therefore it is necessary to readjust the hyperparameters of the global classifier using grid search. Notice that the introduced encoder selection slightly decreases the accuracy score, because there are fewer features in the encoding data used for training the global classifier. However, the encoder selection reduces the communication overhead. In our experiments, at most 8 encoders are selected while there are 66 in total, which means the communication overhead of transferring encoding data is reduced at least 80\%.
 
-\subsubsection{\red{Laplace-Noise Parameter}}
+\subsubsection{Laplace-Noise Parameter}
 
 \begin{figure}[htbp]
     \centering
     \includegraphics[width=0.95\linewidth]{figures/dp_epsilon.pdf}
-    \caption{\red{ACC for different per-block Laplace-noise parameters $\epsilon$.}}
+    \caption{ACC for different per-block Laplace-noise parameters $\epsilon$.}
     \label{fig:dp_epsilon}
     % \vspace{2mm}
 \end{figure}
 
-\red{We investigate how the per-encoder-block parameter $\epsilon$ affects accuracy. Specifically, Figure~\ref{fig:dp_epsilon} reports the accuracy of \Fname at $\epsilon\in\{50,20,10,7,5,3\}$. As $\epsilon$ decreases, the added Laplace noise increases and accuracy falls. Because we do not analyze the full protocol, $\epsilon$ is only the noise parameter used here and not an end-to-end privacy budget for \Fname.}
+We investigate how the per-encoder-block parameter $\epsilon$ affects accuracy. Specifically, Figure~\ref{fig:dp_epsilon} reports the accuracy of \Fname at $\epsilon\in\{50,20,10,7,5,3\}$. As $\epsilon$ decreases, the added Laplace noise increases and accuracy falls. Because we do not analyze the full protocol, $\epsilon$ is only the noise parameter used here and not an end-to-end privacy budget for \Fname.
 
 
 \subsection{Machine Unlearning}

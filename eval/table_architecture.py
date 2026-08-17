@@ -15,7 +15,7 @@ architectures = ['X+X', 'L+X', 'X+L', 'L+L']
 lines = [
     r'\begin{table}[t]',
     r'    \centering',
-    r'    \caption{The table compares macro F1 across local and shared learners. Values are means over five splits. Bold marks the largest mean for each dataset.}',
+    r'    \caption{Across local and shared learners, we compare macro F1. We report means over five splits and bold the largest mean for each dataset.}',
     r'    \label{tab:eval-architecture}',
     r'    \footnotesize',
     r'    \setlength{\tabcolsep}{2.8pt}',
