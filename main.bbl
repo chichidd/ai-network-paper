@@ -20,27 +20,6 @@
 \providecommand{\BIBdecl}{\relax}
 \BIBdecl
 
-\bibitem{andresini2021insomnia}
-G.~Andresini, F.~Pendlebury, F.~Pierazzi, C.~Loglisci, A.~Appice, and L.~Cavallaro, ``Insomnia: Towards concept-drift robustness in network intrusion detection,'' in \emph{Proceedings of the 14th ACM workshop on artificial intelligence and security}, 2021, pp. 111--122.
-
-\bibitem{yang2021cade}
-\BIBentryALTinterwordspacing
-L.~Yang, W.~Guo, Q.~Hao, A.~Ciptadi, A.~Ahmadzadeh, X.~Xing, and G.~Wang, ``{CADE}: Detecting and explaining concept drift samples for security applications,'' in \emph{30th USENIX Security Symposium (USENIX Security 21)}.\hskip 1em plus 0.5em minus 0.4em\relax USENIX Association, 2021, pp. 2327--2344. [Online]. Available: \url{https://www.usenix.org/conference/usenixsecurity21/presentation/yang-limin}
-\BIBentrySTDinterwordspacing
-
-\bibitem{nist2016threatsharing}
-\BIBentryALTinterwordspacing
-C.~S. Johnson, M.~L. Badger, D.~A. Waltermire, J.~Snyder, and C.~Skorupka, ``Guide to cyber threat information sharing,'' National Institute of Standards and Technology, Tech. Rep. NIST Special Publication 800-150, 2016. [Online]. Available: \url{https://doi.org/10.6028/NIST.SP.800-150}
-\BIBentrySTDinterwordspacing
-
-\bibitem{xu2026entente}
-\BIBentryALTinterwordspacing
-J.~Xu, C.~Li, Y.~Zheng, and Z.~Li, ``{ENTENTE}: Cross-silo intrusion detection on network log graphs with federated learning,'' in \emph{Network and Distributed System Security Symposium}, 2026. [Online]. Available: \url{https://www.ndss-symposium.org/wp-content/uploads/2026-s93-paper.pdf}
-\BIBentrySTDinterwordspacing
-
-\bibitem{gdpr2018general}
-E.~GDPR, ``General data protection regulation (gdpr),'' \emph{Cit. on}, vol.~4, 2018.
-
 \bibitem{federated_learning}
 \BIBentryALTinterwordspacing
 H.~B. McMahan, E.~Moore, D.~Ramage, S.~Hampson, and B.~{Ag{\"u}era y Arcas}, ``Communication-efficient learning of deep networks from decentralized data,'' in \emph{Proceedings of the 20th International Conference on Artificial Intelligence and Statistics}, ser. Proceedings of Machine Learning Research, vol.~54.\hskip 1em plus 0.5em minus 0.4em\relax PMLR, 2017, pp. 1273--1282. [Online]. Available: \url{https://proceedings.mlr.press/v54/mcmahan17a.html}
@@ -58,6 +37,19 @@ T.~Li, S.~Hu, A.~Beirami, and V.~Smith, ``Ditto: Fair and robust federated learn
 
 \bibitem{zhao2023fedprompt}
 H.~Zhao, W.~Du, F.~Li, P.~Li, and G.~Liu, ``Fedprompt: Communication-efficient and privacy-preserving prompt tuning in federated learning,'' in \emph{ICASSP 2023-2023 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP)}.\hskip 1em plus 0.5em minus 0.4em\relax IEEE, 2023, pp. 1--5.
+
+\bibitem{nist2016threatsharing}
+\BIBentryALTinterwordspacing
+C.~S. Johnson, M.~L. Badger, D.~A. Waltermire, J.~Snyder, and C.~Skorupka, ``Guide to cyber threat information sharing,'' National Institute of Standards and Technology, Tech. Rep. NIST Special Publication 800-150, 2016. [Online]. Available: \url{https://doi.org/10.6028/NIST.SP.800-150}
+\BIBentrySTDinterwordspacing
+
+\bibitem{xu2026entente}
+\BIBentryALTinterwordspacing
+J.~Xu, C.~Li, Y.~Zheng, and Z.~Li, ``{ENTENTE}: Cross-silo intrusion detection on network log graphs with federated learning,'' in \emph{Network and Distributed System Security Symposium}, 2026. [Online]. Available: \url{https://www.ndss-symposium.org/wp-content/uploads/2026-s93-paper.pdf}
+\BIBentrySTDinterwordspacing
+
+\bibitem{gdpr2018general}
+E.~GDPR, ``General data protection regulation (gdpr),'' \emph{Cit. on}, vol.~4, 2018.
 
 \bibitem{old_dogs2019}
 \BIBentryALTinterwordspacing
@@ -81,6 +73,11 @@ X.~Zhao, G.~Sun, R.~Cai, Y.~Zhou, P.~Li, P.~Wang, B.~Tan, Y.~He, L.~Chen, Y.~Lia
 
 \bibitem{birman2022spirel}
 Y.~Birman, S.~Hindi, G.~Katz, and A.~Shabtai, ``Cost-effective ensemble models selection using deep reinforcement learning,'' \emph{Information Fusion}, vol.~77, pp. 133--148, 2022.
+
+\bibitem{yang2021cade}
+\BIBentryALTinterwordspacing
+L.~Yang, W.~Guo, Q.~Hao, A.~Ciptadi, A.~Ahmadzadeh, X.~Xing, and G.~Wang, ``{CADE}: Detecting and explaining concept drift samples for security applications,'' in \emph{30th USENIX Security Symposium (USENIX Security 21)}.\hskip 1em plus 0.5em minus 0.4em\relax USENIX Association, 2021, pp. 2327--2344. [Online]. Available: \url{https://www.usenix.org/conference/usenixsecurity21/presentation/yang-limin}
+\BIBentrySTDinterwordspacing
 
 \bibitem{wolpert1992stacked}
 D.~H. Wolpert, ``Stacked generalization,'' \emph{Neural Networks}, vol.~5, no.~2, pp. 241--259, 1992.

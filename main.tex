@@ -71,18 +71,17 @@
 
 \begin{document}
 
-\title{\Fname: Integrating Pretrained Intrusion Detectors under Deployment Budgets}
+\title{When Training Data Are Gone: Selective Integration of Pretrained Intrusion Detectors}
 
-% Anonymous submission: author names, affiliations, and email addresses are omitted.
 \author{}
 
 \maketitle
 
 \begin{abstract}
-Deployed intrusion detectors may degrade under concept drift, yet continual retraining is often impractical because historical network records are no longer accessible due to privacy and retention constraints.
-We therefore study post-training integration of authorized pretrained detectors, aiming to select a detector set under a hard deployment budget while preserving diverse source attack-class knowledge and maintaining predictive quality on current target data.
+Effective intrusion detection benefits from diverse attack data, yet historical source records may no longer be accessible due to privacy and retention constraints, preventing further collaborative training. 
+We therefore study selective integration of authorized pretrained detectors, aiming to choose a fixed detector set under a hard deployment budget while preserving diverse source attack-class knowledge and maintaining predictive quality on current deployment data.
 We present \Fname, which treats source coverage and current predictive behavior as ordered objectives rather than combining them into a single score.
-\Fname aligns heterogeneous detector outputs, uses held-out target records to assess current behavior, exactly maximizes weighted source class coverage under a logical byte budget via dynamic programming, and then refines the selected set to improve current prediction without reducing coverage.
+\Fname aligns heterogeneous detector outputs, uses held-out deployment records to assess current behavior, exactly maximizes weighted source class coverage under a logical byte budget via dynamic programming, and then refines the selected set to improve current prediction without reducing coverage.
 A shared stacker integrates the selected outputs, with optional Laplace perturbation for score uploads.
 Theoretically, we establish that calibration remains valid after adaptive selection and that the primary coverage problem is solved exactly, while perturbed scores satisfy label-conditional local differential privacy.
 Across four cybersecurity datasets with 60+ candidate detectors per task, \Fname reduces communication by approximately half under a 50\% selection-cost budget while preserving maximum weighted source coverage and achieving detection performance comparable to the full detector pool.
@@ -94,64 +93,57 @@ Across four cybersecurity datasets with 60+ candidate detectors per task, \Fname
 \section{Introduction}
 \label{sec:introduction}
 
-Deployed intrusion detection models often suffer from performance degradation under concept drift~\cite{andresini2021insomnia,yang2021cade}, as evolving network behaviors can invalidate the patterns learned during training.
-However, continual retraining is challenging because the original network logs used for model training are often inaccessible due to their sensitive nature. Such logs may contain confidential information, including internal network topologies and user identities~\cite{nist2016threatsharing,xu2026entente}, and may need to be deleted to comply with privacy regulations such as the GDPR~\cite{gdpr2018general}.
-Therefore, a natural solution is to leverage intrusion detection models from other parties to collaboratively improve detection performance without requiring access to private training data.
+Effective intrusion detection relies on training data that capture diverse traffic conditions and attack behaviors.
+However, data collected by a single organization typically reflect only its own operational environment, limiting the diversity of attack patterns available for training.
+Collaborative learning, particularly Federated Learning (FL), can mitigate such data silos by learning from distributed records without pooling them centrally~\cite{federated_learning,Fedprox,ditto2021,zhao2023fedprompt}.
+Yet these approaches still require contributors to retain their local training records and participate in additional model optimization.
+In practice, historical network logs may become inaccessible because they contain sensitive information, such as internal network topologies and user identities~\cite{nist2016threatsharing,xu2026entente}, and may need to be deleted under privacy and retention requirements such as the GDPR~\cite{gdpr2018general}.
+When these training records are no longer available but pretrained detectors remain authorized for reuse, integrating existing detectors provides an alternative way to exploit complementary source knowledge without revisiting the original data.
 
-Existing solutions include collaborative learning (\ie, federated learning)~\cite{federated_learning,Fedprox,ditto2021,zhao2023fedprompt} and pretrained-model integration. 
-However, collaborative retraining requires source training data of clients (\ie, contributor) to remain available and contributors to continue computing and communicating model updates.
-In contrast, pretrained model reuse can exploit pretrained source models without retaining their original training records~\cite{old_dogs2019,wei2024tgr}.
-Yet existing approaches either select or aggregate pretrained models without explicitly accounting for heterogeneous deployment costs~\cite{dong2022zood,zhao2024modelglue}, or perform cost-aware dynamic detector selection rather than choosing a single fixed detector set for deployment~\cite{birman2022spirel}.
-This gap motivates our research question: \emph{How can a coordinator select and integrate a fixed set of pretrained intrusion detectors under a deployment budget, while preserving diverse intrusion knowledge from the source domains without sacrificing competence on the current target domain?}
+Pretrained-model reuse is therefore particularly suitable for this setting~\cite{old_dogs2019,wei2024tgr}.
+However, existing approaches either select or aggregate pretrained models without explicitly accounting for heterogeneous deployment costs~\cite{dong2022zood,zhao2024modelglue}, or perform cost-aware dynamic detector selection rather than choosing a single fixed detector set for deployment~\cite{birman2022spirel}.
+This gap motivates our research question: \emph{How can a coordinator selectively integrate a fixed set of pretrained intrusion detectors under a deployment budget while preserving diverse source attack-class coverage and maintaining detection performance on the current deployment data?}
 
 Answering this question presents three challenges.
-First, detectors contributed by different parties may use different label spaces and support different attack classes, making their outputs difficult to compare and integrate directly.
+First, detectors contributed by different parties may have different label spaces and support different attack classes, making their outputs difficult to compare and integrate directly.
 Second, during integration, preserving source attack knowledge and maintaining current detection performance are not always aligned.
-A detector that performs well on current data may contribute little new class knowledge, whereas a detector with unique class coverage may no longer perform well after distribution shifts.
+A detector that performs well on current deployment data may contribute little new class knowledge, whereas a detector with unique class coverage may no longer perform well after distribution shifts.
 Therefore, the coordinator must preserve unique source coverage without filling the limited budget with detectors that are currently weak or redundant.
-Third, detector selection must remain reliable and privacy-aware under the deployment budget. Because calibration data are used to choose detectors, their performance estimates must remain valid after selection, while uploaded prediction scores may still reveal sensitive information.
+Third, detector selection must satisfy the deployment budget while remaining statistically reliable and privacy-aware.
+Because calibration data are used to choose detectors, their performance estimates must remain valid after selection, while uploaded prediction scores may still reveal sensitive information.
 
 
-To address these challenges, we present \Fname, a post-training framework for budget-aware integration of frozen intrusion detectors.
-The key idea is to prioritize source class coverage over current predictive performance: \Fname first selects a detector set that preserves the maximum weighted source attack knowledge allowed by the deployment budget, and then improves current predictive behavior without reducing this coverage.
-This ordering reflects the different roles of the two signals: source class counts indicate which attack classes were represented in the source training data, whereas held-out current records reveal whether the pretrained detectors remain useful after distribution shifts~\cite{yang2021cade}.
-To realize this design, \Fname first aligns heterogeneous detector outputs to a common label space and uses calibration data to assess their current behavior. It then exactly maximizes weighted source class coverage under the budget through dynamic programming, refines the selected set without sacrificing coverage, and integrates the selected outputs with a shared stacker~\cite{wolpert1992stacked}.
+To address these challenges, we present \Fname, a framework for selective integration of frozen intrusion detectors under deployment budgets.
+The key idea is to prioritize source class coverage over current predictive performance: \Fname first maximizes weighted source class coverage under the deployment budget, and then improves current predictive behavior without reducing that coverage.
+This priority separates historical class coverage from current predictive quality: source class counts indicate which attack classes were represented during training, whereas held-out deployment records indicate how well the pretrained detectors perform after distribution shifts~\cite{yang2021cade}.
+To realize this design, \Fname first aligns heterogeneous detector outputs to a common label space and uses held-out deployment records to assess their current predictive behavior.
+It then exactly maximizes weighted source class coverage under the budget through dynamic programming, refines the selected set without sacrificing coverage, and integrates the selected outputs with a shared stacker~\cite{wolpert1992stacked}.
 
 
-We further establish theoretical guarantees for calibration and primary coverage optimization.
+Additionally, we theoretically prove that calibration remains valid after adaptive detector selection and that the primary coverage problem is solved exactly.
 Because avoiding raw-data sharing alone does not eliminate privacy risks from model outputs~\cite{ico2023aiguidance}, \Fname also supports optional Laplace perturbation before score upload.
 The perturbed scores provide record-level, label-conditional local differential privacy, while this guarantee does not extend to public labels or contributed detector parameters.
 
 We evaluate \Fname on four intrusion detection datasets with over 60 candidate detectors per task.
 At a 50\% selection cost budget, \Fname maximizes weighted source class coverage while reducing total logical communication by 49.3\% to 50.4\%, demonstrating that diverse source knowledge can be retained at roughly half the communication cost.
 Importantly, these savings incur only a small loss in detection quality: across all four datasets, the macro F1 gap from the full detector pool is limited to 0.028.
-Consistent with the exactness guarantee, the primary solver attains the same coverage as exhaustive search in all 40 comparison instances.
+Consistent with the exactness guarantee, the primary solver attains the same coverage as exhaustive search in all comparison instances.
 In summary, we make four contributions.
-\begin{packeditemize}
-    \item We formalize post-training detector integration under a deployment
-budget and separate preserved source class coverage from current predictive
-    competence through an ordered objective.
-    %
-    \item We develop \Fname to align pretrained heterogeneous detectors, solve the
-    primary coverage problem exactly, refine current behavior without reducing
-    coverage, and train one shared stacker from optionally perturbed scores.
-    %
-    \item We establish selection valid calibration bounds, exact primary
-    optimization, local secondary stability, label conditional privacy for
-    randomized score uploads, and a coverage guarantee under bounded
-    client mixture shift.
-    %
-    \item We evaluate \Fname across four cybersecurity tasks and show when a
-    50\% selection cost budget provides near full pool quality with
-    approximately half the communication, as well as where coverage, detection
-    quality, privacy, and runtime impose measurable limits.
-\end{packeditemize}
 
+\begin{packeditemize}
+\item We formulate budget-constrained selective integration of pretrained intrusion detectors when historical source records are unavailable and introduce an ordered objective that prioritizes source class coverage over current predictive behavior.
+
+\item We develop \Fname to align heterogeneous detectors, exactly maximize weighted source coverage under the budget, refine the selected set without reducing coverage, and integrate their outputs with a shared stacker.
+
+\item We prove selection-valid calibration, exact primary coverage optimization, and local refinement stability, and provide privacy and mixture-shift guarantees.
+
+\item We evaluate \Fname on four intrusion detection tasks, showing that a 50\% selection-cost budget roughly halves communication while preserving maximum source coverage and near-full-pool detection quality.
+\end{packeditemize}
 
 
 \begin{table*}[t]
 \centering
-\caption{Comparison with recent related methods. \fullmark denotes direct support, \partialmark related support, and \emptymark no support.}
+\caption{Comparison with related methods. \fullmark denotes direct support, \partialmark related support, and \emptymark no support.}
 \label{tab:related_comparison}
 \footnotesize
 \renewcommand{\arraystretch}{0.98}
@@ -198,68 +190,79 @@ FedMStacking~\cite{qiu2024fedmstacking}
 \end{table*}
 \section{Background and Related Work}
 \label{sec:related}
-We first present and review nearby integration and selection methods, and then
-introduce the notion of differential privacy.
+We first present and review existing collaborative training and model integration methods, and then introduce the notion of differential privacy.
 
-\subsection{Detector Retraining and Adaptation}
+\bheading{Retraining and Adaptation of Intrusion Detector}
+When participants retain local training data and can rerun optimization, federated learning coordinates their parameter updates without transferring raw data~\cite{federated_learning,Fedprox,ditto2021}.
+Within intrusion detection, federated methods adapt this process to non-IID traffic and heterogeneous local learners~\cite{pourahmadi2023fedoe,xu2026entente}.
+Recent NIDS research also redesigns the training pipeline to withstand adverse data conditions.
+For example, RAPIER handles low quality labels for encrypted malicious traffic~\cite{qing2024rapier}, Rosetta uses TCP aware augmentation to improve robustness across network environments~\cite{xie2023rosetta}, and CoLD denoises labels before fitting a classifier~\cite{yang2026cold}.
+These approaches assume that participants can revisit training, whereas in practice the historical training data may not be availabl after the detector is trained and deployed.
 
-When participants retain local training data and can rerun optimization,
-federated learning coordinates their parameter updates without transferring
-raw records~\cite{federated_learning,Fedprox,ditto2021}.
-%
-Within intrusion detection, federated methods adapt this process to non-IID
-traffic and heterogeneous local
-learners~\cite{pourahmadi2023fedoe,xu2026entente}.
-%
-Recent NIDS research also redesigns the training pipeline to withstand adverse
-data conditions.
-%
-For example, RAPIER handles low quality labels for encrypted malicious
-traffic~\cite{qing2024rapier}, Rosetta uses TCP aware augmentation to improve
-robustness across network environments~\cite{xie2023rosetta}, and CoLD denoises
-labels before fitting a classifier~\cite{yang2026cold}.
-%
-These approaches assume that participants can revisit training, whereas our
-setting begins only after the contributed detectors have been trained and their
-historical records are no longer available.
+\bheading{Pretrained Model Integration}
+When source training data are no longer available but their trained models remain accessible, pretrained model integration is the closest line of work.
+ZooD ranks a heterogeneous model zoo by cross domain transferability and aggregates its top $K$ models~\cite{dong2022zood}, while other approaches combine pretrained models without accessing their source data~\cite{wei2024tgr,zhao2024modelglue}.
+However, they focus on improving integration utility but do not consider to comply with the deployment budget.
 
-\subsection{Pretrained Model Integration}
-
-When source records are no longer available but their trained models remain
-accessible, pretrained model integration is the closest line of work.
-%
-ZooD ranks a heterogeneous model zoo by cross domain transferability and
-aggregates its top $K$ models~\cite{dong2022zood}, while other approaches
-combine pretrained models without accessing their source
-records~\cite{wei2024tgr,zhao2024modelglue}.
-%
-However, these methods do not solve the constrained selection problem studied
-here: choosing one fixed detector subset under a hard aggregate budget while
-treating available class support as a strict priority.
-
-\subsection{Output Level Ensembles and Cost Aware Selection}
-
+\bheading{Output Level Ensembles and Cost-Aware Selection}
 Once detector outputs are available, stacked generalization can train a
 downstream classifier over them~\cite{wolpert1992stacked}.
-%
-In security, SIRAJ aggregates reports from heterogeneous threat intelligence
+SIRAJ aggregates reports from heterogeneous threat intelligence
 sources by pretraining an embedding and finetuning downstream
-predictors~\cite{thirumuruganathan2022siraj}, while FedMStacking trains a
-global meta classifier from heterogeneous local predictions when labels are
-missing~\cite{qiu2024fedmstacking}.
-%
-To account for inference cost, SPIREL learns a per item policy that trades off
-model invocations against classification utility~\cite{birman2022spirel}.
-%
-Although these approaches combine outputs or control per item cost, none
-simultaneously screens detectors on current data and returns one fixed subset
-under a hard aggregate budget.
-%
+predictors~\cite{thirumuruganathan2022siraj}, while FedMStacking trains a global meta classifier from heterogeneous local predictions when labels are missing~\cite{qiu2024fedmstacking}.
+To account for inference cost, SPIREL learns a per item policy that trades off model invocations against classification utility~\cite{birman2022spirel}.
+Although these approaches combine outputs or control per item cost, none simultaneously screens detectors on current data and returns one fixed subset under a hard aggregate budget.
 By contrast, \Fname makes this subset decision before fitting a shared
 classifier over the selected outputs.
 
-\subsection{Local Privacy for Prediction Uploads}
 
+
+
+Table~\ref{tab:related_comparison} compares the closest methods across eight capabilities that define our setting.
+For model integration, we record whether each method accepts pretrained, heterogeneous models and stacks their outputs.
+%
+For subset selection, we record whether each method screens detectors on
+current data and returns one fixed set under a hard budget while treating
+available class support as a strict priority.
+%
+The final capability records whether each method randomizes predictions
+locally before upload.
+
+
+
+When a method offers related but non equivalent functionality, we assign a
+partial mark.
+%
+Because SIRAJ learns from scanner reports, it does not accept the pretrained model
+objects considered here.
+%
+ZooD instead ranks models using scores from held-out source domains and
+aggregates a fixed set of its top $K$ models, enforcing a cardinality limit
+rather than an aggregate cost limit.
+%
+SPIREL incorporates cost into a per item policy but does not return one fixed
+detector set.
+%
+PrivateKT aggregates randomized predictions rather than fitting a fixed score
+stacker.
+%
+Although FedMStacking addresses missing labels, it does not treat class
+support as a strict selection priority.
+%
+Together, these gaps motivate the ordered selection problem that we formalize
+next.
+
+
+
+
+
+
+
+
+
+
+
+\bheading{Local Differential Privacy}
 Prediction outputs can reveal information about their inputs, so a privacy
 guarantee must specify both where randomization occurs and which fields it
 protects.
@@ -321,53 +324,14 @@ Theorem~\ref{thm:local_score_privacy} establishes label conditional local
 privacy for the resulting score upload under the public label adjacency
 relation.
 
-\subsection{Capability Comparison}
-
-Table~\ref{tab:related_comparison} compares the closest methods across eight
-capabilities that define our setting.
-%
-For model integration, we record whether each method accepts pretrained,
-heterogeneous models and stacks their outputs.
-%
-For subset selection, we record whether each method screens detectors on
-current data and returns one fixed set under a hard budget while treating
-available class support as a strict priority.
-%
-The final capability records whether each method randomizes predictions
-locally before upload.
 
 
-
-When a method offers related but non equivalent functionality, we assign a
-partial mark.
-%
-Because SIRAJ learns from scanner reports, it does not accept the pretrained model
-objects considered here.
-%
-ZooD instead ranks models using scores from held-out source domains and
-aggregates a fixed set of its top $K$ models, enforcing a cardinality limit
-rather than an aggregate cost limit.
-%
-SPIREL incorporates cost into a per item policy but does not return one fixed
-detector set.
-%
-PrivateKT aggregates randomized predictions rather than fitting a fixed score
-stacker.
-%
-Although FedMStacking addresses missing labels, it does not treat class
-support as a strict selection priority.
-%
-Together, these gaps motivate the ordered selection problem that we formalize
-next.
-
-\begingroup
 
 \section{Problem Statement}
 \label{sec:problem}
 
-Post training integration must select among pretrained detectors even when their
+Post-training integration must select among pretrained detectors even when their
 source records are no longer available.
-%
 We formalize this setting, define the ordered selection objective, and state
 the execution and information boundaries used by the design and analysis.
 
@@ -554,18 +518,13 @@ As Figure~\ref{fig:workflow} shows, the coordinator uses only calibration
 outputs to determine eligibility and the selected set.
 %
 After the coordinator freezes that set, clients evaluate the independent
-stacker fit records and upload only the selected aligned blocks, optionally
-perturbed, together with their labels.
-%
-Every contributed detector remains pretrained throughout stacking.
-
+stacker fit records and upload only the selected aligned blocks, optionally perturbed, together with their labels.
 Algorithm~\ref{alg:silostitch} summarizes the complete
-procedure between client and server, and the following subsections define \textsc{Calibrate},
-\textsc{Cover}, and \textsc{Refine} in detail.
-%
-Here, $\epsilon_b$ is the privacy parameter assigned to one selected detector
-block, and $\epsilon_b=\infty$ disables perturbation, so
-$\operatorname{Lap}(0,0)$ denotes zero noise.
+procedure between client and server, and the following subsections define \textsc{Calibrate}, \textsc{Cover}, and \textsc{Refine} in detail.
+
+% Here, $\epsilon_b$ is the privacy parameter assigned to one selected detector
+% block, and $\epsilon_b=\infty$ disables perturbation, so
+% $\operatorname{Lap}(0,0)$ denotes zero noise.
 
 \begin{algorithm}[t]
 \caption{\Fname Procedure}
@@ -1338,8 +1297,6 @@ $\Phi$ while preserving the exact primary value.
 %
 Only after selection do $C_{\mathrm{cert}}$ and the mixture sensitivity bound
 analyze the pretrained returned set.
-
-\endgroup
 
 % All quantitative figures in this section are Matplotlib PDFs generated from
 % the validated paper tables. Their embedded fonts are TrueType, not Type 3.
