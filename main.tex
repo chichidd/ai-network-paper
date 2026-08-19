@@ -195,12 +195,13 @@ When participants retain local training data and can rerun optimization, federat
 Within intrusion detection, federated methods adapt this process to non-IID traffic and heterogeneous local learners~\cite{pourahmadi2023fedoe,xu2026entente}.
 Recent NIDS research also redesigns the training pipeline to withstand adverse data conditions.
 For example, RAPIER handles low quality labels for encrypted malicious traffic~\cite{qing2024rapier}, Rosetta uses TCP aware augmentation to improve robustness across network environments~\cite{xie2023rosetta}, and CoLD denoises labels before fitting a classifier~\cite{yang2026cold}.
-These approaches assume that participants can revisit training, whereas in practice the historical training data may not be availabl after the detector is trained and deployed.
+These approaches improve how retained records are reused, but they still assume that participants can revisit the underlying training data after deployment.
+On the contrast, we consider the setting where the raw historical records are unavailable, while the pretrained detectors and coarse class-count metadata remain authorized for reuse.
 
 \bheading{Pretrained Model Integration}
 When source training data are no longer available but their trained models remain accessible, pretrained model integration is the closest line of work.
 ZooD ranks a heterogeneous model zoo by cross domain transferability and aggregates its top $K$ models~\cite{dong2022zood}, while other approaches combine pretrained models without accessing their source data~\cite{wei2024tgr,zhao2024modelglue}.
-However, they focus on improving integration utility but do not consider to comply with the deployment budget.
+However, these methods primarily optimize transfer or integration utility and do not enforce a heterogeneous aggregate deployment cost budget over the selected model set and the score blocks required for integration.
 
 \bheading{Output Level Ensembles and Cost-Aware Selection}
 Once detector outputs are available, stacked generalization can train a
@@ -209,56 +210,13 @@ SIRAJ aggregates reports from heterogeneous threat intelligence
 sources by pretraining an embedding and finetuning downstream
 predictors~\cite{thirumuruganathan2022siraj}, while FedMStacking trains a global meta classifier from heterogeneous local predictions when labels are missing~\cite{qiu2024fedmstacking}.
 To account for inference cost, SPIREL learns a per item policy that trades off model invocations against classification utility~\cite{birman2022spirel}.
-Although these approaches combine outputs or control per item cost, none simultaneously screens detectors on current data and returns one fixed subset under a hard aggregate budget.
-By contrast, \Fname makes this subset decision before fitting a shared
-classifier over the selected outputs.
+These approaches cover complementary pieces of our setting, but not the same deployment decision.
+Output ensembles combine available predictions, and SPIREL controls cost through per-item invocation decisions.
+However, neither returns one fixed deployment subset after current-domain screening under a hard aggregate budget.
+\Fname instead makes a one-time subset decision and only then fits a shared classifier over the selected outputs.
 
-
-
-
-Table~\ref{tab:related_comparison} compares the closest methods across eight capabilities that define our setting.
-For model integration, we record whether each method accepts pretrained, heterogeneous models and stacks their outputs.
-%
-For subset selection, we record whether each method screens detectors on
-current data and returns one fixed set under a hard budget while treating
-available class support as a strict priority.
-%
-The final capability records whether each method randomizes predictions
-locally before upload.
-
-
-
-When a method offers related but non equivalent functionality, we assign a
-partial mark.
-%
-Because SIRAJ learns from scanner reports, it does not accept the pretrained model
-objects considered here.
-%
-ZooD instead ranks models using scores from held-out source domains and
-aggregates a fixed set of its top $K$ models, enforcing a cardinality limit
-rather than an aggregate cost limit.
-%
-SPIREL incorporates cost into a per item policy but does not return one fixed
-detector set.
-%
-PrivateKT aggregates randomized predictions rather than fitting a fixed score
-stacker.
-%
-Although FedMStacking addresses missing labels, it does not treat class
-support as a strict selection priority.
-%
-Together, these gaps motivate the ordered selection problem that we formalize
-next.
-
-
-
-
-
-
-
-
-
-
+Table~\ref{tab:related_comparison} summarizes the distinctions most relevant to our deployment setting. 
+Note that none of the compared methods jointly performs current deployment domain screening, fixed subset selection under a hard aggregate budget, strict source class priority, and shared stacking over only the selected outputs. This combination motivates the ordered selection problem formalized next.
 
 \bheading{Local Differential Privacy}
 Prediction outputs can reveal information about their inputs, so a privacy
@@ -291,7 +249,7 @@ $x,x'$, and every measurable output set $\mathcal O$,
 \le e^{\epsilon}\Pr[\mathcal M_y(x')\in\mathcal O].
 \label{eq:local_dp_definition}
 \end{equation}
-%
+
 This definition compares records with the same public label and protects the
 feature derived portion of the upload, and the label itself remains public.
 \end{definition}
@@ -303,137 +261,128 @@ $g$ have replacement sensitivity
 \Delta_1(g)=\sup_{x,x'}\lVert g(x)-g(x')\rVert_1.
 \label{eq:local_l1_sensitivity}
 \end{equation}
-%
+
 Adding independent noise
 $\eta_k\sim\operatorname{Lap}(0,\Delta_1(g)/\epsilon)$ to every coordinate
 yields a mechanism that satisfies
 Definition~\ref{def:local_dp}~\cite{dwork2006calibrating}.
-%
 If one record releases blocks with parameters
 $\epsilon_1,\ldots,\epsilon_s$, sequential composition gives the parameter
 $\sum_{i=1}^{s}\epsilon_i$.
-%
 Under one record replacement, releases derived from unchanged records do not
 increase this privacy parameter.
-
 In \Fname, this mechanism applies to the selected detector score blocks.
-%
 Theorem~\ref{thm:local_score_privacy} establishes label conditional local
 privacy for the resulting score upload under the public label adjacency
 relation.
 
-
-
-
 \section{Problem Statement}
 \label{sec:problem}
 
-Post-training integration must select among pretrained detectors even when their
-source records are no longer available.
-We formalize this setting, define the ordered selection objective, and state
-the execution and information boundaries used by the design and analysis.
+
+In this section, we formalize the problem of selective integration of pretrained intrusion detectors without historical training source.
+We first define the information available for detector reuse, map heterogeneous detector outputs to a common deployment label space, and model the communication cost of deploying a selected subset.
+We then specify the threat model for score uploads and formulate a budget-constrained selection objective that prioritizes source class coverage before current predictive behavior.
 
 \subsection{System Model}
 
-After local fitting ends, $J$ clients expose a pool of $M$ pretrained candidate
-detectors.
-%
-Each client contributes one candidate in our experiments, although \Fname
-allows $J$ and $M$ to vary independently.
-%
-For candidate $i$, let $p_i(x)\in\mathbb R^{h_i}$ denote its native
-probability output.
-%
-Because candidates may use incompatible label coordinates, the coordinator
-validates a hard semantic map
+We consider $J$ contributors (\ie, clients) that provide a pool of $M$ pretrained intrusion detectors for integration.
+The raw records originally used to fit these detectors are no longer available to the integration process, while the metadata needed to interpret and deploy the detectors remain available.
+For candidate $i$, we denote its native probability output by $p_i(x)\in\mathbb R^{h_i}$, its serialized model size by $K_i$, and its coarse source class-count vector by $H_i=(H_{i,1},\ldots,H_{i,C})$ after semantic mapping.
+Because contributors may use different class definitions, we also associate each candidate with a validated semantic map that tells the coordinator how its native outputs correspond to the deployment label space.
+
+We first make these heterogeneous outputs comparable.
+Let the deployment party contains $C$ target classes.
+For candidate $i$, the coordinator validates a semantic map
 \begin{equation}
 A_i\in\{0,1\}^{(C+1)\times h_i},
 \qquad
 \mathbf 1^\top A_i=\mathbf 1^\top,
 \end{equation}
-and forms
+and computes the aligned probability vector
 \begin{equation}
 q_i(x)=A_i p_i(x)\in\Delta^{C},
 \label{eq:aligned_output}
 \end{equation}
 where $\Delta^C$ is the probability simplex with $C+1$ coordinates.
-%
-We align the first $C$ coordinates with a pretrained target ontology and reserve
-the last coordinate, denoted by $\bot$, for unsupported outputs.
-%
-Every later Brier calculation therefore retains, rather than silently
-discarding, probability mass assigned to $\bot$.
+The first $C$ coordinates correspond to the predefined target classes.
+We reserve the final coordinate, denoted by $\bot$, for probability mass that cannot be mapped to a supported target class.
+By keeping this unsupported mass explicitly, later evaluation penalizes it instead of silently dropping it.
 
-Before selection, the coordinator holds a labeled calibration set
-$\mathcal D^{\rm cal}$ from the current deployment domain.
-%
-We keep this set disjoint from the records used for candidate fitting, stacker
-fitting, and sealed testing.
-%
-The coordinator also freezes every candidate, semantic map, and source side
-class count before evaluating the pool.
-%
-Test labels remain sealed until both the selected set and the stacker are
-fixed, so they cannot affect calibration, cost, or selection.
+After making the detector outputs comparable, we use current deployment evidence to determine whether each pretrained detector remains useful under the current data distribution.
+Before selection, the coordinator therefore holds a labeled calibration set $\mathcal D^{\rm cal}$ from the current deployment domain.
+We use these records only to evaluate the frozen candidate pool; they are disjoint from the records later used to fit the shared stacker and from the sealed test set for calibration.
+We also freeze every detector, semantic map, and source class count before calibration begins.
+The calibration labels remain hidden until both detector selection and stacker fitting are complete, so they cannot affect any selection decision.
 
-Selection consumes communication in both model delivery and score upload.
-%
-To enforce one hard budget across these steps, \Fname assigns each selected
-candidate a logical cost.
-%
-Let $K_i$ be candidate $i$'s serialized size, let $B_t$ be the number of
-stacker fit records, and let $d$ be the logical byte width of one probability
-element.
-%
-For a selected set $S$, define
+We next model the deployment cost of selecting a detector.
+A selected detector must be delivered for use, and its aligned probability block must later be uploaded for shared stacker fitting.
+We combine these two communication terms into a single logical cost.
+Let $B_t$ denote the total number of stacker-fitting records across all contributors, and let $d$ be the logical byte width of one probability value.
+For a selected set $S$, we define
 \begin{equation}
 C_{\mathrm{sel}}(S)=\sum_{i\in S}b_i,
 \qquad
 b_i=J K_i+dB_t(C+1).
 \label{eq:candidate_cost}
 \end{equation}
-The first term accounts for delivering a selected candidate to $J$ clients,
-whereas the second accounts for uploading one aligned probability block per
-stacker fit record.
-%
-Given a budget fraction $\beta$, we set
+The first term in $b_i$ accounts for delivering candidate $i$ to the $J$ clients, while the second accounts for uploading one aligned score block for every stacker-fitting record.
+
+Given a budget fraction $\beta$, we set the hard selection budget to
 \begin{equation}
 B=\left\lfloor\beta\sum_{i=1}^{M}b_i\right\rfloor.
 \label{eq:logical_budget}
 \end{equation}
-The denominator includes every candidate, including candidates that may later
-fail calibration.
-%
-For complete logical communication, we additionally count the initial
-candidate upload and the stacker label upload:
+The reference cost includes the entire candidate pool, including candidates that may later fail calibration.
+We additionally count the initial candidate upload and the stacker-label upload:
 \begin{equation}
 C_{\mathrm{total}}(S)=\sum_{i=1}^{M}K_i+C_{\mathrm{sel}}(S)+dB_t.
 \label{eq:total_logical_communication}
 \end{equation}
-We use $C_{\mathrm{sel}}$ to enforce the selection budget and
-$C_{\mathrm{total}}$ to compare the complete communication of selected and
-full pool configurations.
+We use $C_{\mathrm{sel}}$ to enforce the deployment budget and $C_{\mathrm{total}}$ to compare the overall logical communication of \Fname with that of the full detector pool.
+% can delete for the next two sents
+For later selection, we will convert each coarse class count $H_{i,c}$ into a binary source-support indicator $\Gamma_{i,c}$ and derive a class weight $w_c$ from the aggregate source counts.
+We introduce these two quantities here so that the workflow notation is easy to follow; their exact definitions appear in the coverage-selection subsection.
+
+\subsection{Threat Model}
+
+We consider the privacy risk introduced when contributors upload detector scores for shared stacker fitting.
+Although raw historical source records are unavailable and never transferred
+during integration, the prediction scores computed from current deployment
+records may still reveal information about those records.
+We therefore consider a coordinator that follows the prescribed integration
+protocol but may attempt to infer record-level information from the uploaded
+scores.
+
+We assume that each contributed detector, its semantic map, and its coarse
+source class counts are fixed and honestly reported before selection.
+Record labels used for stacker fitting are treated as public.
+When score protection is enabled, each contributor randomizes its selected score blocks locally before transmission, so the privacy guarantee does not rely on the coordinator performing the randomization.
+Our guarantee protects the feature-dependent information contained in these
+randomized score uploads; it does not protect the public labels, contributed
+detector parameters, or source class-count metadata.
+
+We do not consider malicious contributors that poison detector parameters,
+forge semantic maps or source class counts, or deviate from the prescribed
+randomization mechanism.
+We leave these integrity attacks outside our scope because we focus on record-level privacy of score uploads.
+% Our centralized experiments reproduce the same logical protocol and noise
+% distribution for evaluation, while a distributed deployment performs score
+% generation and randomization locally at each client.
 
 \subsection{Detector Selection Objective}
 
-Alignment makes detector outputs comparable, but it does not determine which
-detectors should survive the budget.
-%
-We next define the ordered objective that governs this choice.
+The aligned outputs let us compare detectors in a common label space, but the budget may still prevent us from deploying all of them.
+We therefore need to decide which subset to keep.
+Two considerations matter: we want the selected set to preserve attack classes represented across the source domains, and we also want its detectors to remain useful on current deployment data.
+These goals can favor different candidates.
+For example, one detector may be the only affordable model that covers a rare source class but have only moderate current performance, while another may perform well now but add no new source-class coverage.
 
-Ranking only by average current utility may discard the sole affordable
-candidate that supports an important class.
-%
-Ranking only by source side support can instead retain candidates whose current
-probabilities are weak or redundant.
-%
-A single weighted sum does not resolve this conflict because enough secondary
-gain can compensate for a positive coverage loss.
-%
-\Fname therefore gives weighted source side coverage strict priority and
-compares current behavior only among sets that attain the same primary value.
-
-With that priority fixed, \Fname targets
+We handle this conflict with a strict priority instead of a direct tradeoff.
+We first maximize weighted source class coverage under the deployment budget.
+Only after that maximum coverage value has been fixed do we compare current predictive behavior.
+This is a lexicographic objective: the secondary objective can improve the choice among equally well-covered sets, but it can never compensate for losing primary coverage.
+Formally, we target
 \begin{equation}
 \operatorname{lexmax}_{\varnothing\ne S\subseteq\widehat{\mathcal R}}
 \left(C_{\mathrm{sem}}(S),\Phi(S)\right)
@@ -441,88 +390,52 @@ With that priority fixed, \Fname targets
 \sum_{i\in S}b_i\le B.
 \label{eq:lexicographic_target}
 \end{equation}
-Here, $\widehat{\mathcal R}$ contains the candidates that pass calibration,
-$C_{\mathrm{sem}}$ measures weighted source support, and $\Phi$ summarizes
-current predictive scores.
-%
-The primary solver computes the first coordinate exactly.
-%
-The deployed refinement then improves the secondary coordinate only through
-coverage neutral local operations, and it does not claim a globally optimal
-secondary value.
-%
-Only the optional small pool exhaustive solver computes the complete
-lexicographic optimum.
+Here, $\widehat{\mathcal R}$ is the pool that passes current-data calibration, $C_{\mathrm{sem}}$ is the weighted source class coverage defined later, and $\Phi$ summarizes current predictive behavior.
+We solve the maximum source-coverage problem exactly and then improve current predictive behavior without reducing the achieved coverage.
+Section~\ref{sec:method_analysis} later explains why a single fixed weighted sum cannot enforce this strict ordering for every possible candidate pool.
 
-\subsection{Execution and Analysis Model}
-\label{sec:information_boundary}
-
-The guarantees depend on which artifacts the coordinator observes and where
-randomization occurs.
-%
-We therefore make the execution and privacy models explicit.
-
-We evaluate the workflow in a centralized simulation, with
-Figure~\ref{fig:workflow} tracing the protocol's logical data dependencies.
-%
-In a client side realization, each client perturbs its selected probability
-blocks with fresh private Laplace randomness before upload.
-%
-The optional sensitivity mode samples the same distribution centrally only to
-measure its utility effect.
-
-The privacy analysis treats labels as public and protects the feature dependent
-information conveyed by the randomized score uploads used to fit the stacker.
-%
-It assumes immutable candidate detectors, structurally validated semantic
-maps, honest source support reports, and fresh client side randomness.
-%
-The resulting guarantee is label conditional and applies to the score upload,
-not to the contributed detector parameters.
 
 \section{Design of \Fname}
 \label{sec:approach}
 
-\Fname addresses the three design challenges in sequence: it makes
-heterogeneous outputs comparable, selects detectors without relaxing the
-primary coverage target, and learns from only the selected outputs.
-%
-This section follows that sequence from calibration through shared stacking.
+
+\subsection{Overview of \Fname}
+
+We now describe how \Fname realizes the preceding problem formulation as an end-to-end integration workflow.
+Figure~\ref{fig:workflow} summarizes the workflow in four steps.
+In Step~1, we use the semantic map $A_i$ defined in the system model to transform each detector's native probabilities $p_i(x)$ into the aligned representation $q_i(x)$, so that heterogeneous detector outputs can be compared in a common label space.
+We also retain the source class-count information and logical cost introduced earlier for subsequent selection.
+From these source counts, we later derive the source-support masks and class weights used by the coverage objective.
+
+With the detector outputs made comparable, Step~2 uses held-out calibration records to evaluate how the frozen detectors behave on current deployment data.
+We use a Brier-risk upper confidence bound to determine whether each detector enters the calibration-eligible pool, while retaining additional classwise and behavioral statistics for later refinement.
+Based on this eligible pool, Step~3 first uses the source-support information and detector costs to find the maximum weighted source class coverage allowed by the deployment budget.
+We then use the retained calibration statistics to improve current predictive behavior without reducing the achieved coverage.
+Finally, once the selected detector set is fixed, Step~4 uses only its aligned probability blocks to fit one shared stacker and keeps the same selected layout for subsequent sealed-test inference.
+The following subsections define the operations in these four steps in detail.
 
 \begin{figure*}[t]
     \centering
     \includegraphics[width=\linewidth]{figures/post-training-federation-overview-v29-gpt-image.png}
-    \caption{\Fname first freezes and probability aligns the candidate detector
-    pool.
-    %
-    It then uses selection calibration records to form the calibration eligible
-    pool, obtains the exact maximum weighted semantic coverage under the
-    selection budget, and performs coverage neutral local secondary
-    refinement.
-    %
-    Finally, selected aligned probability blocks support independent shared
-    stacker fitting and sealed test inference.
-    %
-    Arrows denote the workflow's logical data dependencies.}
+    \caption{Overview of \Fname.
+    Step~1 maps the heterogeneous outputs of the frozen detector pool to a common $C+1$-coordinate label space and retains the metadata needed for selection.
+    Step~2 evaluates the aligned detectors on held-out calibration records and forms the calibration-eligible pool.
+    Step~3 exactly maximizes weighted source class coverage under the deployment budget and then refines current predictive behavior without reducing the achieved coverage.
+    Step~4 fits a shared stacker from the selected aligned outputs and reuses the same selected layout for sealed-test inference.}
     \label{fig:workflow}
 \end{figure*}
 
 \subsection{Selection and Stacking Workflow}
 
-Detector selection and stacker fitting require separate data so that
-stacker fit records cannot influence which detectors are chosen.
-%
-As Figure~\ref{fig:workflow} shows, the coordinator uses only calibration
-outputs to determine eligibility and the selected set.
-%
-After the coordinator freezes that set, clients evaluate the independent
-stacker fit records and upload only the selected aligned blocks, optionally perturbed, together with their labels.
-Algorithm~\ref{alg:silostitch} summarizes the complete
-procedure between client and server, and the following subsections define \textsc{Calibrate}, \textsc{Cover}, and \textsc{Refine} in detail.
+The selection and stacking stages use different records because they answer different questions.
+We use the calibration partition to decide which frozen detectors should be eligible and which subset should be selected.
+Only after we freeze that subset do we use the independent stacker-fitting partition to train the final combiner.
+This separation prevents the data used to fit the stacker from also influencing which detector outputs become its input features.
 
-% Here, $\epsilon_b$ is the privacy parameter assigned to one selected detector
-% block, and $\epsilon_b=\infty$ disables perturbation, so
-% $\operatorname{Lap}(0,0)$ denotes zero noise.
+Algorithm~\ref{alg:silostitch} follows the same order as Figure~\ref{fig:workflow}.
+We first calibrate the candidate pool, then compute the exact primary coverage value, and then refine one exact primary solution using current predictive evidence.
+After the selected set $\widehat S$ is fixed, the clients evaluate only those detectors on their stacker-fitting records.
+If privacy protection is enabled, they randomize the selected aligned score blocks locally before upload; otherwise the same workflow is used without added noise.
 
 \begin{algorithm}[t]
 \caption{\Fname Procedure}
@@ -552,64 +465,56 @@ $\{\mathcal D_j^{\rm stk}\}_{j=1}^{J}$, $B$, $\epsilon_b\in(0,\infty]$
 
 \subsection{Probability Alignment and Brier Calibration}
 
-The selector needs comparable, bounded scores from detectors with different
-native outputs.
-%
-We obtain these scores by evaluating the aligned probability vectors with a
-full vector Brier score.
+We have already aligned every candidate to the same target label space through $q_i(x)$.
+We now need current-data scores that can be compared across these heterogeneous detectors.
+We use a full-vector Brier score because it is bounded, evaluates the complete aligned probability vector, and naturally penalizes probability mass assigned to the unsupported $\bot$ coordinate.
 
-For calibration record $(x_t,y_t)$, let $e_{y_t}\in\mathbb R^{C+1}$ be the
-one hot label vector with a zero $\bot$ coordinate.
-%
-We evaluate each candidate with the complete aligned output and define
+For calibration record $(x_t,y_t)$, let $e_{y_t}\in\mathbb R^{C+1}$ be the one-hot label vector with a zero $\bot$ coordinate.
+For candidate $i$, we define
 \begin{equation}
 \ell_{i,t}=\frac12\left\|q_i(x_t)-e_{y_t}\right\|_2^2,
 \qquad
 g_{i,t}=1-\ell_{i,t}\in[0,1].
 \label{eq:brier_utility}
 \end{equation}
-Thus, $g_{i,t}$ is one full vector Brier utility rather than a collection of
-coordinate wise scores.
-%
-Including the $\bot$ coordinate ensures that unsupported probability mass
-reduces this utility.
+Thus, $g_{i,t}$ measures the quality of the whole aligned prediction rather than one coordinate at a time.
+If a detector places probability on an unsupported output, that probability remains in the vector and lowers the utility.
 
-\bheading{Eligibility screening} An empirical mean alone can admit a candidate
-whose current risk is too high or too uncertain.
-%
-Using $N$ calibration records and failure level $\delta\in(0,1)$, we compute
+\bheading{Eligibility screening}
+We first decide whether each frozen detector is reliable enough to remain in the candidate pool.
+Using only its empirical mean can be misleading when the calibration set is finite, so we screen with an upper confidence bound on current Brier risk.
+With $N$ calibration records and failure probability $\delta\in(0,1)$, we compute
 \begin{equation}
 \widehat\mu_i=\frac1N\sum_{t=1}^{N}g_{i,t},
 \qquad
 r=\sqrt{\frac{\log(4M/\delta)}{2N}},
 \label{eq:overall_calibration}
 \end{equation}
-and admit candidate $i$ only if
+and define
 \begin{equation}
-R_i^+=1-\widehat\mu_i+r\le\tau_L.
+R_i^+=1-\widehat\mu_i+r.
 \label{eq:risk_gate}
 \end{equation}
-The gate defines the calibration eligible pool
+We keep candidate $i$ only if $R_i^+\le\tau_L$, giving the calibration-eligible pool
 \begin{equation}
 \widehat{\mathcal R}=\{i:R_i^+\le\tau_L\}.
 \label{eq:eligible_pool}
 \end{equation}
-Eligibility therefore depends on an upper confidence bound on current risk,
-not on empirical utility alone.
+In other words, eligibility depends on both the observed current performance and the uncertainty caused by finite calibration data.
 
-\bheading{Classwise scores} Average eligibility does not reveal whether a
-candidate remains useful for a particular class.
-%
-We retain the class-specific scores needed by secondary refinement and the
-later coverage certificate.
-%
-For class $c$, let $N_c=\sum_t\mathbf 1\{y_t=c\}$ and
+\bheading{Classwise scores}
+An acceptable average risk does not guarantee that a detector remains useful for every attack class.
+We therefore keep a conservative current score for each detector--class pair and use these scores later when we refine sets that already achieve maximum source coverage.
+For class $c$, let
+\begin{equation}
+N_c=\sum_t\mathbf 1\{y_t=c\},
+\end{equation}
+and define
 \begin{equation}
 \widehat\mu_{i,c}=\frac1{N_c}\sum_{t:y_t=c}g_{i,t}.
 \end{equation}
-Because \Fname requires every calibration class to occur, $N_c>0$.
-%
-We then compute the class conditional radius and lower utility as
+We require every calibration class to appear at least once, so $N_c>0$.
+We then compute
 \begin{equation}
 r_c=\sqrt{\frac{\log(4MC/\delta)}{2N_c}},
 \qquad
@@ -617,15 +522,13 @@ a_{i,c}=\left[\widehat\mu_{i,c}-r_c\right]_+,
 \label{eq:class_lower_utility}
 \end{equation}
 where $[z]_+=\max\{0,z\}$.
-%
-The secondary objective and effective coverage certificate use $a_{i,c}$ as a
-conservative class-specific score.
+The value $a_{i,c}$ is a lower-confidence estimate of the current utility of candidate $i$ on class $c$.
 
-\bheading{Behavioral similarity} Eligibility alone does not prevent two
-candidates from behaving almost identically.
-%
-\Fname measures this redundancy on a deterministically selected,
-class stratified anchor set $\mathcal A$ and forms
+\bheading{Behavioral similarity}
+Two detectors can have similar average utility and still make nearly identical predictions.
+Selecting both may then consume budget without adding much new behavior.
+To capture this redundancy, we compare the aligned outputs of the candidates on a deterministic class-stratified anchor set $\mathcal A$.
+We form
 \begin{equation}
 z_i=\operatorname{vec}\left([q_i(x_t)]_{t\in\mathcal A}\right),
 \qquad
@@ -634,61 +537,59 @@ z_i=\operatorname{vec}\left([q_i(x_t)]_{t\in\mathcal A}\right),
 \right]_{0}^{1}.
 \label{eq:behavior_similarity}
 \end{equation}
-Here, $[\cdot]_0^1$ clips numerical roundoff into $[0,1]$.
-%
-We use $\kappa_{i,k}$ in a facility location term that measures
-representativeness, not as a pairwise diversity score.
+The clipping only removes numerical roundoff outside $[0,1]$.
+Later, we use these similarities in a representativeness term: rather than rewarding pairwise difference for its own sake, we ask whether the selected set contains detectors whose behavior represents the wider eligible pool.
 
-\subsection{Coverage Prioritized Detector Selection}
+\subsection{Coverage-Prioritized Detector Selection}
 
-Calibration measures current behavior, but it cannot preserve the range of
-source side class support by itself.
-%
-We therefore make weighted semantic coverage the primary budgeted objective.
+The calibration statistics tell us how the frozen detectors behave on current deployment data, but they do not tell us which historical attack classes would disappear if particular detectors were removed.
+That information comes from the coarse source class counts retained with the candidate models.
+We therefore use source class coverage as the primary objective and use the calibration statistics only after the best achievable coverage has been fixed.
 
-\bheading{Weighted semantic coverage} For candidate $i$ and target class $c$,
-let $H_{i,c}$ be the accepted source side support count after semantic mapping.
-%
-After fixing $n_{\min}>0$, define
+\bheading{Weighted source class coverage}
+For candidate $i$ and target class $c$, let $H_{i,c}$ be its accepted source-side count after semantic mapping.
+A very small count may provide weak evidence that a class was meaningfully represented during training, so we first convert the count into a support indicator.
+For a minimum support threshold $n_{\min}>0$, define
 \begin{equation}
 \Gamma_{i,c}=\mathbf 1\{H_{i,c}\ge n_{\min}\}.
 \label{eq:semantic_presence}
 \end{equation}
-If $H_c=\sum_i H_{i,c}>0$, we define
+Thus, $\Gamma_{i,c}=1$ means that candidate $i$ carries enough historical support for class $c$ to count toward the primary objective.
+
+We also give more weight to source classes that are scarce across the whole candidate pool.
+Let $H_c=\sum_iH_{i,c}$ denote the aggregate source count of class $c$.
+For $H_c>0$, we set
 \begin{equation}
 w_c=\frac{H_c^{-1/2}}{\sum_{d=1}^{C}H_d^{-1/2}},
 \qquad
 \sum_{c=1}^{C}w_c=1.
 \label{eq:semantic_weights}
 \end{equation}
-Classes with less aggregate source support consequently receive greater
-weight.
-%
-For any selected set $S$,
+The inverse-square-root rule increases the importance of less represented classes without letting one extremely rare class dominate the whole objective solely because its raw count is small.
+
+For selected set $S$, we define weighted source class coverage as
 \begin{equation}
 C_{\mathrm{sem}}(S)=
 \sum_{c=1}^{C}w_c
 \mathbf 1\{\exists i\in S:\Gamma_{i,c}=1\}.
 \label{eq:semantic_coverage}
 \end{equation}
-Because the $\bot$ coordinate represents unsupported outputs, we exclude it
-from this coverage.
-%
-Accordingly, $C_{\mathrm{sem}}$ measures the range of declared source
-support rather than current predictive accuracy.
+A class contributes once as soon as at least one selected detector provides sufficient source support for it; selecting more detectors for the same class does not increase the primary value.
+We exclude the unsupported $\bot$ coordinate.
+Therefore, $C_{\mathrm{sem}}$ measures how much historical attack-class coverage is retained by the selected set, not how accurately that set predicts current records.
 
-\bheading{Secondary behavioral objective} Once the primary coverage value is
-fixed, current scores can distinguish among coverage equivalent sets.
-%
+\bheading{Secondary behavioral objective}
+After the primary coverage value is fixed, several feasible detector sets may still attain exactly the same coverage.
+We compare such sets using three current-data signals that capture different failure modes: overall utility, weak-class behavior, and redundant behavior.
 With $h_\tau(z)=1-e^{-z/\tau}$, define
 \begin{align}
 U(S)
 &=\frac1N\sum_{t=1}^{N}
-h_{\tau_U}\!\left(\sum_{i\in S}g_{i,t}\right),
+ h_{\tau_U}\!\left(\sum_{i\in S}g_{i,t}\right),
 \nonumber\\
 C_{\mathrm{pred}}(S)
 &=\frac1C\sum_{c=1}^{C}
-h_{\tau_C}\!\left(\sum_{i\in S}a_{i,c}\right),
+ h_{\tau_C}\!\left(\sum_{i\in S}a_{i,c}\right),
 \nonumber\\
 D_{\mathrm{rep}}(S)
 &=\frac1{|\widehat{\mathcal R}|}
@@ -696,30 +597,25 @@ D_{\mathrm{rep}}(S)
 \max_{i\in S}\kappa_{i,k}.
 \label{eq:secondary_components}
 \end{align}
-The term $U$ summarizes record level utility, $C_{\mathrm{pred}}$ summarizes
-conservative classwise scores, and $D_{\mathrm{rep}}$ rewards behavior that
-represents the eligible pool.
-%
-The saturating functions impose diminishing returns so that repeated scores
-cannot dominate the secondary comparison without bound.
-%
-Here and throughout the analysis, we set
-$\max_{i\in\varnothing}\kappa_{i,k}=0$.
-%
-We average the classes uniformly in $C_{\mathrm{pred}}$, whereas
-$C_{\mathrm{sem}}$ uses source support weights.
-%
-For nonnegative weights that sum to one, the secondary objective is
+The term $U(S)$ rewards sets whose members perform well across the calibration records.
+The term $C_{\mathrm{pred}}(S)$ keeps attention on classwise behavior by using the conservative scores $a_{i,c}$.
+The term $D_{\mathrm{rep}}(S)$ rewards sets whose prediction patterns represent the behavior found across the eligible pool.
+
+The saturating functions in $U$ and $C_{\mathrm{pred}}$ impose diminishing returns.
+Once several selected detectors already perform well on the same record or class, another similar detector contributes less.
+This makes it harder for repeated versions of the same behavior to dominate the secondary comparison.
+We define $\max_{i\in\varnothing}\kappa_{i,k}=0$ and combine the three terms as
 \begin{equation}
 \Phi(S)=\lambda_U U(S)+\lambda_C C_{\mathrm{pred}}(S)
-+\lambda_D D_{\mathrm{rep}}(S).
++\lambda_D D_{\mathrm{rep}}(S),
 \label{eq:secondary_objective}
 \end{equation}
-\Fname uses this score only after fixing semantic coverage, so no increase in
-$\Phi$ can compensate for a decrease in $C_{\mathrm{sem}}$.
+where the nonnegative weights sum to one.
+Crucially, we use $\Phi$ only after the primary coverage value has been fixed, so no gain in current predictive behavior can compensate for a loss in source class coverage.
 
-\bheading{Budgeted selection procedure} The hard budget induces the feasible
-family and exact primary target
+\bheading{Budgeted selection procedure}
+We now solve the primary problem: among the calibration-eligible candidates, what is the largest weighted source class coverage that fits within the deployment budget?
+Define
 \begin{equation}
 \begin{aligned}
 \mathcal F_B&=\left\{
@@ -730,48 +626,34 @@ W^\star&=\max_{S\in\mathcal F_B}C_{\mathrm{sem}}(S).
 \end{aligned}
 \label{eq:primary_value}
 \end{equation}
-We encode every $\Gamma_i$ as a $C$-bit mask and use a sparse dynamic program
-to compute $W^\star$ and recover a least cost witness.
-%
-Starting from this exact primary witness, we spend remaining budget through
-density-based fill, accepting the chosen candidate only while its absolute gain
-exceeds $\varepsilon_{\mathrm{loc}}$.
-%
-We then accept a single swap replacement only when it preserves $W^\star$ and
-improves $\Phi$ by more than the same fixed tolerance.
-%
-These operations refine the secondary objective locally without weakening the
-exact primary guarantee.
+Because $C_{\mathrm{sem}}$ depends only on which classes are covered, we encode every support vector $\Gamma_i$ as a $C$-bit mask and run a sparse dynamic program over reachable masks.
+For each mask, we retain only the least-cost detector set that produces it.
+Any more expensive set with the same mask is dominated because every future detector changes the two masks in exactly the same way.
 
-For a matched comparison, we also apply the same fill--one swap procedure
-without semantic priority.
-%
-If that no semantic result already attains $W^\star$, \Fname returns the same
-set unchanged.
-%
-Otherwise, it refines the exact coverage witness and, when available, a
-coverage optimal singleton seed, then returns the locally refined result with
-the larger $\Phi$ value.
-%
-The two variants thus coincide when the semantic constraint is inactive and
-differ only when semantic priority changes the refinement path.
+The dynamic program returns both the exact optimum $W^\star$ and a least-cost set $S_0$ that attains it.
+Starting from this least-cost exact solution leaves as much unused budget as possible for improving current predictive behavior.
+We first consider additional candidates according to their secondary gain per byte and accept an addition only when its absolute gain exceeds $\varepsilon_{\mathrm{loc}}$.
+We then examine one-for-one replacements and accept a swap only when it remains budget feasible, keeps coverage equal to $W^\star$, and improves $\Phi$ by more than the same tolerance.
+Every accepted refinement therefore improves current behavior without weakening the exact primary guarantee.
+
+For the support-priority ablation in the evaluation, we apply the same secondary refinement without enforcing the primary source-coverage requirement.
+We use this variant only to isolate the effect of strict coverage priority; it is not an additional branch of the deployed \Fname workflow.
 
 \subsection{Shared Stacker Learning}
 
-After the selector freezes $\widehat S$, only the selected aligned outputs
-enter the shared representation:
+Once the selector freezes $\widehat S$, only the aligned outputs of the selected detectors enter the shared learner.
+For input $x$, we define the selected representation
 \begin{equation}
 \phi_{\widehat S}(x)=
 \operatorname{concat}_{i\in\widehat S}q_i(x)
 \in\mathbb R^{|\widehat S|(C+1)}.
 \label{eq:selected_representation}
 \end{equation}
+The selected detector set therefore fixes both which probability blocks are used and the order in which they appear before the stacker is fitted.
 
-\bheading{Local score perturbation} Selected score blocks may reveal
-record level information even though source records are not shared.
-%
-When local score protection is enabled, client $j$ independently perturbs
-every coordinate of each selected block:
+\bheading{Local score perturbation}
+Even though the raw source records are not shared, a prediction score can still reveal information about the record that produced it.
+When score protection is enabled, each client therefore randomizes every coordinate of each selected score block before upload:
 \begin{equation}
 \widetilde q_i(x_t)=q_i(x_t)+\eta_{i,t},
 \qquad
@@ -779,16 +661,16 @@ every coordinate of each selected block:
 \operatorname{Lap}\!\left(0,\frac{2}{\epsilon_b}\right).
 \label{eq:local_laplace_release}
 \end{equation}
-The resulting perturbed representation is
+The resulting stacker input is
 \begin{equation}
 \widetilde\phi_{\widehat S}(x)=
 \operatorname{concat}_{i\in\widehat S}\widetilde q_i(x).
 \label{eq:private_selected_representation}
 \end{equation}
+Section~\ref{sec:method_analysis} later proves the corresponding label-conditional local privacy guarantee and its composition across selected blocks.
 
-\bheading{Shared stacker fitting} The independent stacker fit partition
-$\mathcal D^{\mathrm{stk}}$ supplies the labels and selected score features
-used to train
+\bheading{Shared stacker fitting}
+After selection is complete, the independent stacker-fitting partition $\mathcal D^{\mathrm{stk}}$ supplies the labels and selected score features used to train one shared classifier:
 \begin{equation}
 \widehat f_{\widehat S}=\mathsf{Fit}_{\mathrm{global}}
 \left(
@@ -797,125 +679,76 @@ used to train
 \right).
 \label{eq:shared_stacker}
 \end{equation}
-For the nonprivate configuration, we set
-$\widetilde\phi_{\widehat S}=\phi_{\widehat S}$.
-%
-Both configurations use only the columns indexed by $\widehat S$, so
-unselected blocks cannot affect the learned classifier.
+For the nonprivate configuration, we simply set $\widetilde\phi_{\widehat S}=\phi_{\widehat S}$.
+Because both configurations use only the columns indexed by $\widehat S$, unselected detectors cannot influence the learned stacker.
 
-The centralized sensitivity experiment samples from
-Eq.~\ref{eq:local_laplace_release} after selection to isolate the utility
-effect of noise.
-%
-In a distributed realization, each client samples the same noise privately.
-%
-During sealed test inference, \Fname preserves the selected layout and leaves
-every contributed detector unchanged.
+During deployment, clients would generate the Laplace noise locally before transmission.
+Our centralized privacy experiment samples the same distribution only to isolate the utility effect of score randomization.
+For sealed-test inference, we keep the selected detector set and aligned feature layout fixed and reuse the fitted shared stacker without retraining any contributed detector.
 
 \section{Theoretical Analysis}
 \label{sec:method_analysis}
 
-The analysis follows the guarantee chain created by the design: privacy holds
-at score upload, calibration remains valid under adaptive selection, the
-primary solver is exact, and the secondary refinement has a local certificate.
-%
-We then bound how client mixture shift changes the interpretation of the
-pretrained set's current scores.
+We now analyze the guarantees that support the workflow above.
+We follow the same order as the design so that each result answers a concrete question raised by the implementation.
+First, we show what the local score randomization protects.
+Second, we show that the calibration bounds remain valid even after we use those same calibration statistics to choose detectors.
+Third, we prove that the primary coverage solver is exact and characterize what the local secondary refinement guarantees.
+Finally, we examine how a change in the client mixture can affect the interpretation of the selected detectors after deployment.
 
 \subsection{Local Privacy of Score Uploads}
 
-Because the coordinator receives selected score blocks, the first question is
-what the client side randomization protects.
-%
-We answer it under the execution boundary defined in
-Section~\ref{sec:information_boundary}.
+Recall that the shared stacker is trained from selected detector score blocks rather than from the historical source records.
+Because these score blocks are still record dependent, we ask what information the client-side Laplace mechanism protects.
+We use the label-conditional adjacency relation defined earlier: the record label is public, and two neighboring records $(x,y)$ and $(x',y)$ differ only in their feature vectors.
 
-We fix the selected set before observing any stacker fit record and treat each
-record label as public.
-%
-Accordingly, $(x,y)$ and $(x',y)$ are adjacent only when their feature vectors
-differ.
-%
-Because Algorithm~\ref{alg:silostitch} uploads $y$ without perturbation, we use
-this label fixed relation.
-%
-For a batched upload, adjacent batches have the same size, row alignment, and
-label sequence, and they differ in exactly one feature vector.
-%
-Each client samples noise independently across records, selected detector
-blocks, and output coordinates.
+Before any stacker-fitting record is processed, we fix the selected detector set and all semantic maps.
+For a batched upload, neighboring batches have the same size, the same row alignment, and the same sequence of public labels, but they differ in one feature vector.
+Each client samples fresh noise independently across records, selected detector blocks, and output coordinates.
+Under this execution model, we obtain the following guarantee.
 
-\begin{theorem}[Label conditional local score privacy]
+\begin{theorem}[Label-conditional local score privacy]
 \label{thm:local_score_privacy}
-Suppose that the selected detectors and their semantic maps are fixed and
-that $0<\epsilon_b<\infty$ and each client uses fresh private randomness in
-Eq.~\ref{eq:local_laplace_release}.
-%
-Then one released detector block is
-$(\epsilon_b,0)$-locally differentially private under the preceding
-adjacency relation.
-%
-If $s=|\widehat S|$ blocks are released for the same
-record, their joint release is $(s\epsilon_b,0)$-locally differentially
-private.
-%
-Under one record replacement, releasing the entire client batch has
-the same record level guarantee.
-%
-More generally, assigning parameter
-$\epsilon_i$ to block $i$ gives
-$(\sum_{i\in\widehat S}\epsilon_i,0)$-local differential privacy.
+Suppose that the selected detectors and their semantic maps are fixed and that $0<\epsilon_b<\infty$, and suppose that each client uses fresh private randomness in Eq.~\ref{eq:local_laplace_release}.
+Then one released detector block satisfies $(\epsilon_b,0)$-local differential privacy under the preceding label-conditional adjacency relation.
+If $s=|\widehat S|$ blocks are released for the same record, their joint release satisfies $(s\epsilon_b,0)$-local differential privacy.
+Under one-record replacement, releasing the entire client batch has the same record-level guarantee.
+More generally, assigning parameter $\epsilon_i$ to block $i$ gives $(\sum_{i\in\widehat S}\epsilon_i,0)$-local differential privacy.
 \end{theorem}
 
 \begin{proof}
-Because $q_i(x)$ and $q_i(x')$ are probability vectors,
-$\lVert q_i(x)-q_i(x')\rVert_1\le2$.
-%
-Therefore, coordinatewise Laplace noise
-with scale $2/\epsilon_b$ bounds the density ratio of one released block by
-$e^{\epsilon_b}$.
-%
-Sequential composition over the $s$ selected blocks gives
-$e^{s\epsilon_b}$.
-%
-Because different rows use independent randomization and
-neighboring batches differ in one row, parallel composition across rows leaves
-this bound unchanged.
-%
-Appending the unchanged public labels does not alter the
-density ratio.
+Because $q_i(x)$ and $q_i(x')$ are probability vectors, their replacement sensitivity satisfies
+\begin{equation}
+\|q_i(x)-q_i(x')\|_1\le2.
+\end{equation}
+Therefore, adding coordinatewise Laplace noise with scale $2/\epsilon_b$ bounds the density ratio of one released block by $e^{\epsilon_b}$.
+Sequential composition over the $s$ selected blocks gives the factor $e^{s\epsilon_b}$.
+
+For a batched upload, neighboring batches differ in only one row.
+Since different rows use independent randomization, parallel composition across the unchanged rows does not increase the record-level privacy parameter.
+Finally, appending the unchanged public labels does not change the density ratio.
 \end{proof}
 
-Assigning $\epsilon_b=\epsilon/s$ to each block changes the noise scale to
-$2s/\epsilon$ and yields a total per record score budget $\epsilon$.
-%
-For a fixed total budget, selecting fewer blocks also reduces the noise scale
-required by this composition rule.
-%
-This guarantee is label conditional and covers the randomized score upload.
-%
-Privacy parameters compose across repeated upload rounds.
+The theorem also clarifies how the privacy budget interacts with detector selection.
+If we want one total per-record score budget $\epsilon$, we can assign $\epsilon_b=\epsilon/s$ to each of the $s$ selected blocks.
+The corresponding noise scale becomes $2s/\epsilon$.
+Thus, under a fixed total score-privacy budget, selecting fewer detector blocks also reduces the noise that each released block requires.
+The guarantee applies only to the randomized score upload, and privacy loss composes again if the same record is released in repeated rounds.
 
 \subsection{Calibration under Heterogeneous Clients}
 
-The privacy result concerns the stacker fit partition, whereas detector
-eligibility depends on a separate calibration partition.
-%
-We next show that the calibration scores remain valid after the coordinator
-uses it to select a detector set.
+The privacy result concerns the stacker-fitting partition.
+Detector selection, in contrast, depends on the separate calibration partition introduced in the system model.
+We therefore ask a different question here: after we use the calibration statistics to choose a detector subset, can we still trust the confidence bounds computed before selection?
 
-The records in $\mathcal D^{\rm cal}$ may represent different clients and
-classes, so an identically distributed population model would obscure the
-mixture being certified.
-%
-We condition on both the observed client--label design
-$\mathcal I=\{(j_t,y_t)\}_{t=1}^{N}$ and the candidate pool $\mathcal Q$
-pretrained before calibration.
-%
-We assume conditional independence given $(\mathcal Q,\mathcal I)$ while
-allowing the conditional distribution to differ across records.
-%
-Define
+The calibration records may come from different clients and classes, so we do not assume that every record follows one identical distribution.
+Instead, we condition on the observed client--label design
+\begin{equation}
+\mathcal I=\{(j_t,y_t)\}_{t=1}^{N}
+\end{equation}
+and on the frozen candidate pool $\mathcal Q$.
+Conditioned on $(\mathcal Q,\mathcal I)$, we assume the records are independent, while allowing their conditional distributions to differ across records.
+We define
 \begin{equation}
 \mu_i=\frac1N\sum_{t=1}^{N}\mathbb E[g_{i,t}\mid\mathcal Q,\mathcal I],
 \qquad
@@ -928,14 +761,12 @@ and
 \mathbb E[g_{i,t}\mid\mathcal Q,\mathcal I].
 \label{eq:heterogeneous_class_mean}
 \end{equation}
-These means describe the record weighted calibration mixture, not equal client
-or worst client performance.
+These quantities describe the record-weighted calibration mixture actually observed by the coordinator.
+They should not be read as equal-client averages or worst-client performance.
 
 \begin{theorem}[Simultaneous calibration]
 \label{thm:simultaneous_calibration}
-Under the preceding assumptions, with probability at least $1-\delta$, the
-following inequalities hold simultaneously for every candidate $i$ and
-class $c$:
+Under the preceding assumptions, with probability at least $1-\delta$, the following inequalities hold simultaneously for every candidate $i$ and class $c$:
 \begin{align}
 R_i&\le R_i^+\le R_i+2r,
 \label{eq:simultaneous_risk}\\
@@ -943,214 +774,135 @@ R_i&\le R_i^+\le R_i+2r,
 &\le a_{i,c}\le\mu_{i,c}.
 \label{eq:simultaneous_class}
 \end{align}
-Consequently, the inequalities remain valid for every candidate in any set
-selected adaptively from the calibration statistics.
+Consequently, these inequalities remain valid for every candidate in any set selected adaptively from the calibration statistics.
 \end{theorem}
 
 \begin{proof}
-Conditioning on $(\mathcal Q,\mathcal I)$, Hoeffding's inequality gives
+Conditioned on $(\mathcal Q,\mathcal I)$, Hoeffding's inequality gives
 \[
 \Pr\{|\widehat\mu_i-\mu_i|>r\mid\mathcal Q,\mathcal I\}
 \le2e^{-2Nr^2}=\frac{\delta}{2M}.
 \]
-Therefore, a union bound over $M$ candidates spends at most $\delta/2$.
-%
+A union bound over the $M$ candidates therefore uses at most $\delta/2$ failure probability.
 Likewise,
 \[
 \Pr\{|\widehat\mu_{i,c}-\mu_{i,c}|>r_c\mid\mathcal Q,\mathcal I\}
 \le2e^{-2N_cr_c^2}=\frac{\delta}{2MC},
 \]
-so a second union bound over $MC$ pairs spends at most $\delta/2$.
-%
-The
-intersection has probability at least $1-\delta$, and it does not require
-different candidates evaluated on the same record to be independent.
+so a second union bound over all $MC$ candidate--class pairs uses the remaining $\delta/2$.
+Thus, with probability at least $1-\delta$, all overall and classwise inequalities hold at the same time.
 
-On this event, $1-\widehat\mu_i+r$ lies between $R_i$ and $R_i+2r$.
-%
-Moreover, $\widehat\mu_{i,c}-r_c$ lies between $\mu_{i,c}-2r_c$ and
-$\mu_{i,c}$.
-%
-Applying $[\cdot]_+$ proves the class inequalities.
-%
-Because
-the event covers all $M+MC$ coordinates before selection, taking a
-data dependent subset requires no additional union bound over $2^M$ sets.
+On this event, $1-\widehat\mu_i+r$ lies between $R_i$ and $R_i+2r$, while $\widehat\mu_{i,c}-r_c$ lies between $\mu_{i,c}-2r_c$ and $\mu_{i,c}$.
+Applying $[\cdot]_+$ gives the classwise result.
+The key point is that this one event covers all $M+MC$ quantities before selection occurs.
+We can therefore choose a data-dependent subset without paying another union bound over the $2^M$ possible detector sets.
 \end{proof}
 
-The simultaneous event also constrains how calibration screening can change
-the best achievable primary coverage.
-%
-For any pool $\mathcal E$, let $W(\mathcal E)$ be the largest feasible
-semantic coverage available from that pool, with value zero if no nonempty set
-is feasible.
-%
-On the event in Theorem~\ref{thm:simultaneous_calibration}, define
+The same simultaneous event also tells us how the eligibility screen can affect the best source coverage available to the selector.
+For any candidate pool $\mathcal E$, let $W(\mathcal E)$ denote the largest budget-feasible weighted source class coverage available from that pool, with value zero if no nonempty set is feasible.
+Define
 \begin{equation}
 \mathcal R^-=\{i:R_i\le\tau_L-2r\},
 \qquad
 \mathcal R^0=\{i:R_i\le\tau_L\}.
 \end{equation}
-Then,
+Then
 \begin{equation}
 \mathcal R^-\subseteq\widehat{\mathcal R}\subseteq\mathcal R^0,
 \qquad
 W(\mathcal R^-)\le W(\widehat{\mathcal R})\le W(\mathcal R^0).
 \label{eq:coverage_sandwich}
 \end{equation}
-The left inclusion follows from $R_i^+\le R_i+2r$, whereas the right inclusion
-follows from $R_i\le R_i^+$.
-%
-Hence, calibration preserves the conditional calibration mixture primary value
-whenever a primary optimal witness over $\mathcal R^0$ lies entirely in
-$\mathcal R^-$.
-
-With $\tau_L=1$, the upper confidence gate is a finite sample admissibility
-screen over normalized Brier risk.
-%
-We therefore refer to $\widehat{\mathcal R}$ as the calibration eligible pool.
+The left inclusion follows from $R_i^+\le R_i+2r$, while the right inclusion follows from $R_i\le R_i^+$.
+Therefore, if one primary-optimal set over $\mathcal R^0$ already lies entirely in $\mathcal R^-$, calibration screening does not reduce the best achievable primary coverage.
+With $\tau_L=1$, we use this upper-confidence gate as a finite-sample admissibility screen before budgeted selection.
 
 \subsection{Exact Primary Coverage under a Hard Budget}
 
-Once calibration fixes the eligible pool, the remaining primary challenge is
-combinatorial: the budget may prevent simultaneous coverage of all classes.
-%
-We characterize this problem and the exact parameterized solver used by
-\Fname.
+Once calibration fixes the eligible pool, the primary selection problem has a simple interpretation.
+Each detector has a deployment cost and covers a subset of source attack classes, while the hard budget may prevent us from selecting all detectors at once.
+We first characterize the difficulty of this problem and then show why the bitmask dynamic program used by \Fname still returns the exact primary optimum for the processed instances.
 
 \begin{theorem}[Primary hardness and exact parameterized solver]
 \label{thm:primary_solver}
-Computing $W^\star$ is NP hard, even when every candidate is eligible, every
-cost is one, and all class weights are uniform.
-%
-Nevertheless, the bitmask
-dynamic program returns a
-nonempty feasible set $S_0$ with
+Computing $W^\star$ is NP-hard, even when every candidate is eligible, every cost is one, and all class weights are uniform.
+Nevertheless, the bitmask dynamic program returns a nonempty feasible set $S_0$ such that
 \begin{equation}
 C_{\mathrm{sem}}(S_0)=W^\star.
 \end{equation}
-It stores at most $2^C$ masks and examines at most
-$|\widehat{\mathcal R}|2^C$ state transitions.
-%
-Thus, its primary stage is
-fixed parameter tractable in $C$.
+It stores at most $2^C$ masks and examines at most $|\widehat{\mathcal R}|2^C$ state transitions.
+Thus, the primary stage is fixed-parameter tractable in the number of target classes $C$.
 \end{theorem}
 
 \begin{proof}
-For hardness, take a Maximum Coverage instance with universe
-$\{1,\ldots,C\}$, subsets $\Gamma_1,\ldots,\Gamma_M$, and cardinality
-limit $k$.
-%
+For hardness, take a Maximum Coverage instance with universe $\{1,\ldots,C\}$, subsets $\Gamma_1,\ldots,\Gamma_M$, and cardinality limit $k$.
 Set $b_i=1$, $B=k$, and $w_c=1/C$.
-%
-Maximizing
-$C_{\mathrm{sem}}$ then solves that instance up to the constant factor
-$1/C$.
+Maximizing $C_{\mathrm{sem}}$ then solves that Maximum Coverage instance up to the constant factor $1/C$.
 
-For exactness, after processing the first $t$ eligible candidates, associate
-each reachable union mask $h$ with its least cost witness.
-%
-Omitting candidate
-$t$ preserves an earlier state, whereas including it extends an earlier
-mask to $h\vee\Gamma_t$.
-%
-Every subset makes exactly one of these choices.
-%
-Moreover, a lower cost witness for the same mask dominates every higher cost
-witness under all future union operations.
-%
-Induction therefore shows that
-the final table contains the least cost witness for every reachable mask.
-%
-Scanning the budget feasible masks returns exactly $W^\star$.
+For exactness, process the eligible candidates one at a time.
+After the first $t$ candidates, associate every reachable union mask $h$ with the least-cost detector set that produces that mask.
+When we process the next candidate, every subset either excludes it and keeps an earlier state, or includes it and extends an earlier mask to $h\vee\Gamma_{t+1}$.
+If two sets produce the same mask, the cheaper one dominates the more expensive one because every future candidate changes the two masks in exactly the same way.
+By induction, the final table therefore contains the least-cost realization of every reachable mask.
+Scanning the masks whose costs do not exceed $B$ returns exactly $W^\star$.
 
-A $C$-bit mask has at most $2^C$ values, and each eligible candidate extends
-each current mask at most once.
-%
-When all feasible masks have value zero,
-the solver returns the least cost feasible singleton, which enforces
-the nonempty stacker input without changing the primary value.
+A $C$-bit mask has at most $2^C$ values, and every eligible candidate extends each current mask at most once.
+If all feasible masks have zero weighted coverage, we return the least-cost feasible singleton so that the downstream stacker still receives a nonempty input without changing the primary value.
 \end{proof}
 
-The transition count excludes witness reconstruction and sorting overhead.
-%
-We restrict the evaluated solver to at most $10^6$ states, and the exactness
-guarantee applies to every instance processed within this limit.
+The transition count does not include witness reconstruction or the sorting used by the later refinement stage.
+In our implementation, we process at most $10^6$ mask states.
+The exactness guarantee applies to every instance that falls within this implementation limit.
 
 \subsection{Secondary Objective and Local Refinement}
 
-Exact primary coverage restricts the comparison to feasible sets that attain
-$W^\star$, but it does not make the secondary problem globally tractable.
-%
-We first explain why the two objectives cannot be replaced by one universal
-weighted sum and then state the guarantee of the deployed local refinement.
+The exact primary solver fixes the best source coverage that the budget can support, but many detector sets may still attain that same value.
+We use the secondary objective $\Phi$ to choose among them.
+Before stating the local-refinement guarantee, we first explain why we do not replace the ordered objective with one weighted sum.
 
-Let $\mathcal V=\{C_{\mathrm{sem}}(S):S\in\mathcal F_B\}$ contain the
-achievable primary values.
-%
-When $\mathcal V$ has at least two values, let $\Delta_{\mathrm{inst}}$ be its
-smallest positive gap.
-%
-Because $0\le\Phi(S)\le1$, any coefficient
-$K>1/\Delta_{\mathrm{inst}}$ makes every maximizer of
-$KC_{\mathrm{sem}}+\Phi$ lexicographic for that fixed instance.
-%
-Normalized class weights can make the smallest positive coverage gap
-arbitrarily small, so no universal finite coefficient is available.
-%
-The strict order in Eq.~\ref{eq:lexicographic_target} avoids this
-instance-specific scale tuning.
+For a fixed problem instance, define the set of achievable primary values as
+\begin{equation}
+\mathcal V=\{C_{\mathrm{sem}}(S):S\in\mathcal F_B\}.
+\end{equation}
+When $\mathcal V$ contains at least two values, let $\Delta_{\mathrm{inst}}$ be the smallest positive gap between them.
+Because $0\le\Phi(S)\le1$, any coefficient $K>1/\Delta_{\mathrm{inst}}$ makes every maximizer of $KC_{\mathrm{sem}}+\Phi$ respect the lexicographic order for that one fixed instance.
+However, $\Delta_{\mathrm{inst}}$ depends on the class weights and candidate pool and can become arbitrarily small.
+Therefore, no universal finite $K$ enforces the required priority across arbitrary deployments.
+The ordered formulation in Eq.~\ref{eq:lexicographic_target} states the priority directly and avoids instance-specific scale tuning.
 
+We next ask whether the secondary score has a useful diminishing-returns property: once a selected set already captures some behavior, adding another similar detector should help less.
+This standard set-function property is called submodularity.
 \begin{proposition}[Secondary structure]
 \label{prop:secondary_structure}
-For fixed calibration statistics, $U$, $C_{\mathrm{pred}}$, and
-$D_{\mathrm{rep}}$ are normalized, monotone, submodular set functions.
-%
-Consequently, their nonnegative weighted combination $\Phi$ has the same
-properties.
+For fixed calibration statistics, $U$, $C_{\mathrm{pred}}$, and $D_{\mathrm{rep}}$ are normalized, monotone, submodular set functions.
+Consequently, their nonnegative weighted combination $\Phi$ has the same properties.
 \end{proposition}
 
 \begin{proof}
-For $U$ and $C_{\mathrm{pred}}$, each summand applies the nondecreasing
-concave function $h_\tau$ to a nonnegative modular sum.
-%
-Therefore, the gain from adding the same candidate cannot increase as the
-current set grows.
-%
-For
-$D_{\mathrm{rep}}$, target $k$ contributes
-$\max_{i\in S}\kappa_{i,k}$, whose marginal gain is
+For $U$ and $C_{\mathrm{pred}}$, each summand applies the nondecreasing concave function $h_\tau$ to a nonnegative modular sum.
+Therefore, the marginal gain from adding the same candidate cannot increase as the selected set grows.
+For $D_{\mathrm{rep}}$, target candidate $k$ contributes $\max_{i\in S}\kappa_{i,k}$, whose marginal gain from adding candidate $a$ is
 \[
-\max\{0,\kappa_{a,k}-\max_{i\in S}\kappa_{i,k}\}.
+\max\left\{0,\kappa_{a,k}-\max_{i\in S}\kappa_{i,k}\right\}.
 \]
-As $S$ grows, this gain also cannot increase.
-%
-Averaging and taking a
-nonnegative weighted sum preserve all three properties.
+As $S$ grows, the existing maximum can only increase, so this gain can only decrease.
+Averaging and taking a nonnegative weighted sum preserve normalization, monotonicity, and submodularity.
 \end{proof}
 
-Submodularity provides useful structure for $\Phi$, but it does not yield a
-global secondary approximation guarantee under the exact primary constraint.
-%
-The equal primary family
+This submodularity does not by itself give a global approximation guarantee for the deployed secondary refinement.
+The family of sets that preserve exact primary coverage,
 \begin{equation}
-\mathcal F^\star=
-\{S\in\mathcal F_B:C_{\mathrm{sem}}(S)=W^\star\}
+\mathcal F^\star=\{S\in\mathcal F_B:C_{\mathrm{sem}}(S)=W^\star\},
 \end{equation}
-is not downward closed and need not satisfy an exchange axiom.
-%
-Standard monotone submodular knapsack guarantees, including $1-1/e$, therefore
-do not apply to the secondary refinement stage.
+does not have the simple structure required by standard submodular-knapsack results: removing a detector can destroy the required coverage, and an arbitrary exchange need not restore it.
+Therefore, familiar global guarantees such as $1-1/e$ do not directly apply after we require exact primary coverage.
 
-For $S\in\mathcal F^\star$, let $\mathcal N_1(S)$ contain every set obtained
-by removing exactly one selected candidate and adding exactly one unselected
-candidate while preserving budget feasibility and $W^\star$.
+For $S\in\mathcal F^\star$, let $\mathcal N_1(S)$ contain every set obtained by removing one selected candidate and adding one unselected candidate while preserving budget feasibility and coverage $W^\star$.
+We can then state what the deployed refinement does guarantee.
 
-\begin{theorem}[Coverage preservation and one swap certificate]
+\begin{theorem}[Coverage preservation and one-swap certificate]
 \label{thm:local_refinement}
-Given an exact primary solution, the refinement procedure
-terminates after finitely many accepted operations and returns
-$\widehat S\in\mathcal F^\star$ such that
+Given an exact primary solution, the refinement procedure terminates after finitely many accepted operations and returns $\widehat S\in\mathcal F^\star$ such that
 \begin{equation}
 \Phi(S')\le\Phi(\widehat S)+\varepsilon_{\mathrm{loc}},
 \qquad
@@ -1160,50 +912,28 @@ $\widehat S\in\mathcal F^\star$ such that
 \end{theorem}
 
 \begin{proof}
-The constrained seed has coverage $W^\star$.
-%
-Because
-$C_{\mathrm{sem}}$ is monotone and $W^\star$ is already maximal, every
-feasible fill keeps that value.
-%
-The algorithm checks every
-accepted replacement for budget feasibility and equality to $W^\star$.
-%
-Each accepted operation also increases $\Phi$ by more than
-$\varepsilon_{\mathrm{loc}}$.
-%
-Because the candidate pool has only finitely many subsets, the procedure
-terminates.
-%
-At termination, the exhaustive
-single swap search has found no feasible coverage neutral replacement
-whose gain exceeds the tolerance, which proves
-Eq.~\ref{eq:one_swap_certificate}.
+The initial set has coverage $W^\star$.
+Since $W^\star$ is already the maximum feasible coverage and $C_{\mathrm{sem}}$ is monotone, every feasible addition keeps that primary value.
+Every accepted replacement is also checked explicitly for budget feasibility and equality to $W^\star$.
+Each accepted operation improves $\Phi$ by more than $\varepsilon_{\mathrm{loc}}$.
+Because the candidate pool contains only finitely many subsets, the procedure must terminate.
+At termination, the one-swap search has found no budget-feasible, coverage-preserving replacement whose gain exceeds the tolerance, which yields Eq.~\ref{eq:one_swap_certificate}.
 \end{proof}
 
-The certificate is deliberately local because the refinement procedure
-explores only one swap neighbors.
-%
-During fill, the procedure ranks candidates by gain per byte and stops when
-the chosen candidate's absolute gain does not exceed the tolerance.
-%
-The guarantee does not cover broader additions, multi candidate exchanges, or
-the globally optimal secondary value.
+We deliberately state this as a local guarantee.
+The refinement examines additions and one-for-one replacements rather than all possible multi-detector exchanges.
+It therefore preserves the exact primary optimum and returns a set that is stable against the defined one-swap neighborhood, but it does not claim a globally optimal secondary score.
 
 \subsection{Effective Coverage under Client Mixture Shift}
 
-Exact primary coverage preserves declared source support, but declared support
-alone does not certify current competence.
-%
-We now connect these quantities for the pretrained returned set and quantify how
-client mixture shift changes that connection.
+The source-coverage objective records which attack classes were represented in the historical source domains.
+It does not, by itself, guarantee that a detector supporting a class still performs well on that class after deployment.
+The held-out calibration records provide current evidence, but the client mixture observed during deployment may itself differ from the mixture seen during calibration.
+We therefore connect historical source support with current classwise utility and quantify how a change in client mixture can weaken that connection.
 
-The certificate reuses statistics already computed during calibration and
-does not alter the selection objective.
-
-Let $\vartheta_c\in[0,1]$ be a prespecified current competence threshold.
-%
-To test whether declared source support is backed by current scores, define
+This analysis does not change which set \Fname selects.
+Instead, after selection, we use the already computed classwise calibration bounds to ask which historically covered classes also have conservative evidence of current competence.
+Let $\vartheta_c\in[0,1]$ be a prespecified current-utility threshold for class $c$ and define
 \begin{equation}
 C_{\mathrm{cert}}(S;\boldsymbol\vartheta)=
 \sum_{c=1}^{C}w_c
@@ -1211,21 +941,12 @@ C_{\mathrm{cert}}(S;\boldsymbol\vartheta)=
 \Gamma_{i,c}=1\ \wedge\ a_{i,c}\ge\vartheta_c\}.
 \label{eq:certified_coverage}
 \end{equation}
-Under this rule, a class contributes only when a selected detector provides
-both declared source support and a conservative current utility score.
-%
-For comparison, let $C_\mu^a(S;\boldsymbol\vartheta)$ replace
-$a_{i,c}\ge\vartheta_c$ by $\mu_{i,c}^a\ge\vartheta_c$, where
-$a\in\{\mathrm{cal},\mathrm{dep}\}$.
+A class contributes to this value only when at least one selected detector both reports enough historical source support and has a conservative current classwise utility above the threshold.
 
+For comparison, let $C_\mu^a(S;\boldsymbol\vartheta)$ replace the condition $a_{i,c}\ge\vartheta_c$ by $\mu_{i,c}^a\ge\vartheta_c$, where $a\in\{\mathrm{cal},\mathrm{dep}\}$ denotes calibration and deployment.
 Let $h=(j,c)$ index a client--class cell.
-%
-Suppose that detector behavior within each cell remains stable between
-calibration and deployment while only the mixture weights change.
-%
-Let $R_{i,h}\in[0,1]$ denote the cell risk, and let
-$\pi_h^{\mathrm{cal}}$ and $\pi_h^{\mathrm{dep}}$ denote the two mixtures.
-%
+We consider a mixture-shift model in which detector behavior inside each client--class cell remains stable while only the proportions of those cells change between calibration and deployment.
+Let $R_{i,h}\in[0,1]$ be the risk of detector $i$ in cell $h$, and let $\pi_h^{\mathrm{cal}}$ and $\pi_h^{\mathrm{dep}}$ denote the two mixtures.
 For $a\in\{\mathrm{cal},\mathrm{dep}\}$, define
 \begin{equation}
 R_i^a=\sum_{j,c}\pi_{j,c}^a R_{i,j,c},
@@ -1233,35 +954,25 @@ R_i^a=\sum_{j,c}\pi_{j,c}^a R_{i,j,c},
 \mu_{i,c}^a=\sum_j\pi_{j\mid c}^a(1-R_{i,j,c}),
 \label{eq:mixture_quantities}
 \end{equation}
-and let $\operatorname{TV}(p,q)=\tfrac12\lVert p-q\rVert_1$.
-%
-Under the calibration design, the means in
-Eqs.~\ref{eq:heterogeneous_overall_mean}--\ref{eq:heterogeneous_class_mean}
-equal $1-R_i^{\mathrm{cal}}$ and $\mu_{i,c}^{\mathrm{cal}}$, respectively.
+and let $\operatorname{TV}(p,q)=\tfrac12\|p-q\|_1$.
 
 \begin{theorem}[Effective coverage under mixture shift]
 \label{thm:post_selection_certificates}
-Suppose that the within class client mixtures differ by at most $\eta_c$.
-%
-On the simultaneous calibration event, every adaptively selected set
-$\widehat S$ satisfies
+Suppose that the within-class client mixtures differ by at most $\eta_c$.
+On the simultaneous calibration event, every adaptively selected set $\widehat S$ satisfies
 \begin{equation}
 \begin{aligned}
 C_\mu^{\mathrm{cal}}(\widehat S;
 \boldsymbol\vartheta+\boldsymbol\eta+2\boldsymbol r)
 &\le C_{\mathrm{cert}}(\widehat S;
-\boldsymbol\vartheta+\boldsymbol\eta)
-\\
+\boldsymbol\vartheta+\boldsymbol\eta)\\
 &\le C_\mu^{\mathrm{dep}}(\widehat S;\boldsymbol\vartheta)
-\le C_{\mathrm{sem}}(\widehat S).
+\le C_{\mathrm{sem}}(\widehat S),
 \end{aligned}
 \label{eq:certified_coverage_sandwich}
 \end{equation}
-where $(\boldsymbol r)_c=r_c$ and
-$(\boldsymbol\eta)_c=\eta_c$.
-
-Moreover, if
-$\operatorname{TV}(\pi^{\mathrm{dep}},\pi^{\mathrm{cal}})\le\eta$, then
+where $(\boldsymbol r)_c=r_c$ and $(\boldsymbol\eta)_c=\eta_c$.
+Moreover, if $\operatorname{TV}(\pi^{\mathrm{dep}},\pi^{\mathrm{cal}})\le\eta$, then
 \begin{equation}
 R_i^{\mathrm{dep}}\le R_i^{\mathrm{cal}}+\eta.
 \label{eq:risk_mixture_shift}
@@ -1269,866 +980,1504 @@ R_i^{\mathrm{dep}}\le R_i^{\mathrm{cal}}+\eta.
 \end{theorem}
 
 \begin{proof}
-Theorem~\ref{thm:simultaneous_calibration} and the mixture assumption give
+The simultaneous calibration result and the mixture-shift assumption give
 \[
 \mu_{i,c}^{\mathrm{cal}}\ge\vartheta_c+\eta_c+2r_c
 \Longrightarrow a_{i,c}\ge\vartheta_c+\eta_c
 \Longrightarrow\mu_{i,c}^{\mathrm{dep}}\ge\vartheta_c.
 \]
-Intersecting these implications with the fixed support edge
-$\Gamma_{i,c}=1$, taking the existential quantifier over selected
-candidates, and summing class weights proves
-Eq.~\ref{eq:certified_coverage_sandwich}.
-
-For the final claim, total variation bounds the change in the expectation of
-any $[0,1]$-valued function.
-%
-Applying this bound to the cell risks yields
-Eq.~\ref{eq:risk_mixture_shift}.
+Combining these implications with the fixed historical-support condition $\Gamma_{i,c}=1$, taking the existence condition over the selected detectors, and summing the class weights yields Eq.~\ref{eq:certified_coverage_sandwich}.
+For the final result, total variation bounds the change in the expectation of any function taking values in $[0,1]$.
+Applying this fact to the client--class risks gives Eq.~\ref{eq:risk_mixture_shift}.
 \end{proof}
 
-By requiring both declared source side support and current class conditional
-Brier utility, $C_{\mathrm{cert}}$ connects the two under client mixture shift.
-%
-During selection, \Fname optimizes $C_{\mathrm{sem}}$ and locally refines
-$\Phi$ while preserving the exact primary value.
-%
-Only after selection do $C_{\mathrm{cert}}$ and the mixture sensitivity bound
-analyze the pretrained returned set.
-
-% All quantitative figures in this section are Matplotlib PDFs generated from
-% the validated paper tables. Their embedded fonts are TrueType, not Type 3.
+The theorem separates three quantities that serve different purposes.
+$C_{\mathrm{sem}}$ is the historical source-coverage value optimized during selection.
+$C_{\mathrm{cert}}$ keeps only the part of that coverage that also has conservative current calibration evidence.
+$C_\mu^{\mathrm{dep}}$ describes the corresponding current utility after deployment mixture shift.
+Thus, \Fname guarantees the historical coverage objective exactly, while this separate post-selection analysis states when that historical coverage is also supported by current predictive evidence.
 
 \section{Evaluation}
 \label{sec:experiments}
 
-We evaluate whether \Fname can reduce the cost of integrating pretrained
-detectors while preserving the source side class support needed to represent
-infrequent attacks.
-%
-We organize the evaluation around five questions:
+We evaluate whether selective reuse of frozen intrusion detectors can deliver the three properties targeted by our design: preserving source attack-class coverage, maintaining useful current detection quality, and reducing deployment communication.
+We also study when these benefits become weaker by varying source heterogeneity, secondary design choices, privacy strength, and problem scale.
+To keep the discussion organized, we answer five questions.
 \begin{packeditemize}
     \item \textbf{RQ1: Detection quality under a budget.}
-    %
-    How much predictive
-    quality and source support does the shared detector retain under a hard
-    selection cost budget?
-    %
+    How much source coverage and current detection quality do we retain when only part of the full deployment cost is available?
     \item \textbf{RQ2: Client label heterogeneity.}
-    %
-    How do different client
-    label distributions affect partition feasibility, class support, and
-    detection quality?
-    %
+    How does stronger heterogeneity across source silos affect candidate construction, source coverage, and final detection quality?
     \item \textbf{RQ3: Selection signals and learners.}
-    %
-    Which selection
-    signals, semantic settings, and learning backends materially change the
-    result?
-    %
+    How sensitive are the selected sets to the secondary signals, source-coverage settings, and learning backends?
     \item \textbf{RQ4: Score randomization.}
-    %
-    What detection and attack leakage
-    costs accompany stronger Laplace score randomization?
-    %
+    What predictive and security costs arise when we protect selected score blocks with stronger Laplace randomization?
     \item \textbf{RQ5: Scalability and runtime.}
-    %
-    Does exact selection remain
-    correct and practical as the candidate pool and class vocabulary grow,
-    and what logical communication saving does it deliver at the evaluated
-    deployment scale?
+    Does the exact primary solver remain correct and practical as the candidate pool and attack vocabulary grow, and what communication reduction do we obtain at the evaluated scale?
 \end{packeditemize}
 
 \subsection{Experimental Setup}
 
-\bheading{Datasets} We use four multiclass cybersecurity datasets:
-CIC DDoS2019 (DDoS)~\cite{cicddos19}, CICMalDroid2020
-(MalDroid)~\cite{maldroid}, CIC Darknet2020
-(Darknet)~\cite{darknet}, and CIRA CIC DoHBrw 2020
-(DoH)~\cite{DoH}.
-%
-We use 66 clients in each task and let every client contribute one candidate
-detector.
-%
-To keep all 66 candidates trainable, we give each client between 74 and 30,517
-records for local detector fitting and at least two classes.
-%
-Holding the federation size constant prevents cross dataset differences from
-being attributed merely to a larger or smaller candidate pool.
-%
-The central 50\% operating point limits the selected set to approximately half
-of the full pool selection cost.
-%
-If all candidate costs were equal, this budget would correspond to roughly 33
-of the 66 detectors, but the actual set size follows the logical byte costs.
-%
-In RQ5, we vary the candidate pool $M$ from 16 to 256 independently to test
-how selection scales.
-%
-Table~\ref{tab:eval-datasets} summarizes the evaluation scale.
-%
-Among the 13 observed classes in the reserved DDoS test set, one attack class
-is absent from client training.
-%
-This class contributes to macro F1 but not to minimum evaluated class recall.
+\bheading{Datasets}
+We use four multiclass cybersecurity datasets: CIC DDoS2019 (DDoS)~\cite{cicddos19}, CICMalDroid2020 (MalDroid)~\cite{maldroid}, CIC Darknet2020 (Darknet)~\cite{darknet}, and CIRA CIC DoHBrw 2020 (DoH)~\cite{DoH}.
+For each task, we construct 66 source clients and let each client contribute one frozen candidate detector.
+Keeping the candidate count fixed across datasets helps us separate dataset effects from changes in pool size.
+
+We require every local candidate to be a multiclass detector, so each client receives at least two source classes and between 74 and 30,517 fitting records depending on the dataset and partition.
+Our main operating point uses a 50\% selection-cost budget.
+If all candidate costs were identical, this budget would allow roughly 33 of the 66 detectors; in practice, the selected count depends on the logical byte cost $b_i$ of each candidate.
+In RQ5, we separately vary the candidate pool from 16 to 256 to isolate solver scaling.
+Table~\ref{tab:eval-datasets} summarizes the four tasks.
+
+Among the 13 classes observed in the reserved DDoS test set, one attack class is absent from all client-training partitions.
+We still include that class in macro F1 because it appears at test time, but we exclude it from the minimum evaluated class recall because no source detector could have learned it from the source data.
 
 \begin{table*}[t]
-    \centering
-    \caption{Scale of the four evaluation tasks; each task uses 66 clients and one candidate detector per client, evaluated classes count labels in the sealed test set, and DDoS includes one test class absent from client training.}
-    \label{tab:eval-datasets}
-    \small
-    \begin{tabular}{lrrrr}
-        \toprule
-        Dataset & Training samples & Test samples & Features & Evaluated classes \\
-        \midrule
-        DDoS & 3,355,966 & 1,127,526 & 79 & 13 \\
-        MalDroid & 8,118 & 3,480 & 470 & 5 \\
-        Darknet & 99,066 & 42,459 & 76 & 11 \\
-        DoH & 1,005,708 & 431,034 & 29 & 4 \\
-        \bottomrule
-    \end{tabular}
+\centering
+\caption{Scale of the four evaluation tasks. Each task uses 66 clients and one frozen candidate detector per client. Evaluated classes count labels in the sealed test set; DDoS contains one test class absent from source training.}
+\label{tab:eval-datasets}
+\small
+\begin{tabular}{lrrrr}
+\toprule
+Dataset & Training samples & Test samples & Features & Evaluated classes \\
+\midrule
+DDoS & 3,355,966 & 1,127,526 & 79 & 13 \\
+MalDroid & 8,118 & 3,480 & 470 & 5 \\
+Darknet & 99,066 & 42,459 & 76 & 11 \\
+DoH & 1,005,708 & 431,034 & 29 & 4 \\
+\bottomrule
+\end{tabular}
 \end{table*}
 
+\bheading{Protocol}
+For each dataset, we split the available training pool into disjoint 60\%, 10\%, and 30\% partitions for source-detector fitting, selection calibration, and shared-stacker fitting, respectively.
+After we fit the source detectors, the 60\% source partitions are no longer used by the integration procedure.
+This reproduces the paper's intended setting: the frozen source models and their coarse metadata remain available, while the raw source records are no longer revisited.
 
-\bheading{Protocol} We divide each training pool into disjoint 60\%, 10\%,
-and 30\% partitions for local detector training, selection validation, and
-shared stacker training.
-%
-After this split, the coordinator holds the 10\% selection validation
-partition.
-%
-We keep the test set sealed until both selection and stacker fitting have
-finished.
-%
-Unless stated otherwise, we use five repeated splits,
-LightGBM~\cite{lightgbm} for local detectors and the shared stacker, a 50\%
-selection cost budget, minimum source support $n_{\min}=2$, class weights that
-are inversely proportional to the square root of class frequency, and equal
-weights for the three secondary selection signals.
+We use the 10\% calibration partition only to evaluate the frozen candidate pool and select $\widehat S$.
+We use the 30\% stacker-fitting partition only after $\widehat S$ has been frozen.
+The test set remains sealed until both steps are complete.
+Unless stated otherwise, we repeat the complete protocol over five data splits, use LightGBM~\cite{lightgbm} for both local detectors and the shared stacker, set the selection-cost budget to 50\%, use $n_{\min}=2$, use inverse-square-root source-class weights, and assign equal weights to the three secondary components in $\Phi$.
 
-\bheading{Baselines and reference point} We compare \Fname with two baselines
-under the same selection cost budget.
-%
-For the random baseline, we generate a random candidate order from each of 20
-fixed selection seeds within a data split.
-%
-The coordinator scans each order once and adds a detector whenever it fits the
-remaining budget, after which we average the 20 selections within the split.
-%
-Under the individual utility baseline, the coordinator ranks detectors by mean
-calibrated Brier utility per selection cost byte and greedily packs the fixed
-order.
-%
-Random selection tests whether an arbitrary budget feasible subset is
-sufficient, whereas individual utility ranking tests whether prioritizing
-current average behavior sacrifices source side class support.
-%
-We use the full pool of 66 detectors as the unconstrained reference and the
-100\% selection cost reference point.
-%
-By contrast, \Fname first maximizes weighted source class support and then
-refines current predictive quality without reducing that support.
-%
-We later remove only the source support priority while retaining the same
-secondary search.
+\bheading{Baselines and reference point}
+We compare \Fname with two budget-matched selection rules and with the full detector pool.
+The first baseline is random selection.
+Within each data split, we generate 20 fixed random candidate orders and scan each order once, adding a candidate whenever its cost still fits the remaining budget.
+We average these 20 selections within the split.
+This baseline tells us whether an arbitrary budget-feasible subset is already sufficient.
 
-\bheading{Metrics and statistics} We choose macro F1 as the main detection
-score because it gives every class equal weight.
-%
-In imbalanced security traffic, this prevents a frequent class from hiding
-weak detection of a rarer attack class.
-%
-We also report accuracy for overall correctness, balanced accuracy for average
-class recall, and minimum evaluated class recall.
-%
-Among labels that appear in the sealed test set and belong to the fixed
-training class set, the last metric takes the lowest recall.
-%
-We measure weighted class coverage separately because it describes retained
-training support rather than classifier quality.
-%
-For the DDoS privacy experiment, we report \emph{attack leakage}, which is the
-fraction of predictions labeled benign that are actually attacks.
-%
-We define the selection cost in Eq.~\ref{eq:candidate_cost} and the budget in
-Eq.~\ref{eq:logical_budget}.
-%
-For system results, we add the initial candidate upload and stacker label
-upload according to Eq.~\ref{eq:total_logical_communication}.
-%
-We report means and 95\% Student \(t\) confidence intervals over five repeated
-splits unless stated otherwise.
-%
-When two conditions share a split, we pair their observations.
-%
-We apply Holm correction within each comparison family that we fixed before
-analysis.
-%
-We recompute every detection score from the reserved test confusion matrix.
+The second baseline ranks candidates by mean calibrated Brier utility per selection-cost byte and greedily packs them in that order.
+This rule favors current average behavior but does not explicitly protect source class coverage.
+We use it to test the main reason for our ordered objective: a utility-driven selector may gain current predictive quality by discarding unique source coverage.
+Finally, we use all 66 detectors as the unconstrained reference corresponding to the 100\% selection-cost point.
 
-\bheading{Experimental environment} We run a centralized simulation on one
-machine under Linux and Python~3.9.25.
-%
-In this simulation, we use NumPy~1.26.4, scikit-learn~1.3.2,
-LightGBM~4.6.0, and XGBoost~\cite{xgboost}~1.4.2.
-%
-We record wall clock time and the logical bytes exchanged by the evaluated
-protocol.
+\bheading{Metrics and statistics}
+We use macro F1 as the main detection metric because every class contributes equally.
+This is important for imbalanced security traffic, where a frequent class can otherwise hide weak performance on a rare attack class.
+We also report accuracy, balanced accuracy, and minimum evaluated class recall.
+The last metric is the smallest recall among classes that both appear in the sealed test set and belong to the fixed source-training class set.
+
+We report weighted source class coverage separately from these predictive metrics because it answers a different question: whether the selected set retains historical class support, not whether it predicts current records correctly.
+For the DDoS privacy experiment, we also report \emph{attack leakage}, defined as the fraction of predictions labeled benign that are actually attacks.
+We compute communication using Eqs.~\ref{eq:candidate_cost}--\ref{eq:total_logical_communication}.
+Unless stated otherwise, we report means and 95\% Student $t$ confidence intervals over five repeated splits.
+When two conditions share a split, we pair their observations, and we apply Holm correction within each comparison family fixed before analysis.
+
+\bheading{Experimental environment}
+We run the centralized replay on one Linux machine with Python~3.9.25, NumPy~1.26.4, scikit-learn~1.3.2, LightGBM~4.6.0, and XGBoost~\cite{xgboost}~1.4.2.
+We record wall-clock runtime and the logical bytes exchanged by the evaluated protocol.
+The reported runtime therefore measures the centralized experimental replay, while the communication metric follows the logical client--coordinator workflow defined in the system model.
 
 \subsection{RQ1: Detection Quality under a Budget}
 
-RQ1 asks whether \Fname can convert a hard cost budget into deployment savings
-without discarding either current detection quality or available source
-support.
-%
-We first compare the methods at the central 50\% operating point and then
-inspect weak class behavior and the full budget sweep.
+We first ask whether the 50\% cost constraint actually provides a useful deployment point.
+A good result should preserve the maximum source coverage allowed by the budget, reduce communication substantially, and keep the final shared detector close to the full-pool reference.
+We therefore compare the methods at the 50\% operating point and then inspect the full budget sweep in Fig.~\ref{fig:eval-budget-utility}.
 
-% \input{eval/tables/main}
 \begin{table*}[t]
-    \centering
-    \caption{Macro F1 at the 50\% selection-cost budget; random selection and individual utility ranking receive the same budget, the full detector pool is an unconstrained reference, and entries report means and 95\% Student $t$ confidence intervals over five repeated splits.}
-    \label{tab:eval-main-results}
-    \small
-    \setlength{\tabcolsep}{4.5pt}
-    \begin{tabular}{@{}lrrrr@{}}
-        \toprule
-        Method & DDoS & MalDroid & Darknet & DoH \\
-        \midrule
-        Full detector pool & $0.6412\pm0.0121$ & $0.8449\pm0.0123$ & $0.5972\pm0.0128$ & $0.6073\pm0.0042$ \\
-        Random selection & $0.6079\pm0.0287$ & $0.8344\pm0.0100$ & $0.5931\pm0.0071$ & $0.6074\pm0.0028$ \\
-        Individual utility ranking & $0.6303\pm0.0437$ & $0.8374\pm0.0132$ & $0.5921\pm0.0168$ & $0.6069\pm0.0042$ \\
-        \textbf{\Fname} & $0.6153\pm0.0453$ & $0.8397\pm0.0121$ & $0.5953\pm0.0148$ & $0.6064\pm0.0038$ \\
-        \bottomrule
-    \end{tabular}
+\centering
+\caption{Macro F1 at the 50\% selection-cost budget. Random selection and individual-utility ranking receive the same budget; the full detector pool is an unconstrained reference. Entries report means and 95\% Student $t$ confidence intervals over five repeated splits.}
+\label{tab:eval-main}
+\small
+\setlength{\tabcolsep}{4.5pt}
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+Method & DDoS & MalDroid & Darknet & DoH \\
+\midrule
+Full detector pool & $0.6412\pm0.0121$ & $0.8449\pm0.0123$ & $0.5972\pm0.0128$ & $0.6073\pm0.0042$ \\
+Random selection & $0.6079\pm0.0287$ & $0.8344\pm0.0100$ & $0.5931\pm0.0071$ & $0.6074\pm0.0028$ \\
+Individual utility ranking & $0.6303\pm0.0437$ & $0.8374\pm0.0132$ & $0.5921\pm0.0168$ & $0.6069\pm0.0042$ \\
+\textbf{\Fname} & $0.6153\pm0.0453$ & $0.8397\pm0.0121$ & $0.5953\pm0.0148$ & $0.6064\pm0.0038$ \\
+\bottomrule
+\end{tabular}
 \end{table*}
 
 \begin{figure*}[t]
     \centering
     \includegraphics[width=0.98\textwidth]{figures/eval_budget_utility.pdf}
-    \caption{Macro F1 as a function of the selection cost budget.
-    %
-    Curves compare
-    \Fname with two budget matched selection rules at 25\%, 50\%, and 75\%,
-    and the star is the unconstrained pool of 66 detectors.
-    %
-    Error bars are 95\%
-    confidence intervals over five repeated splits, after averaging the 20
-    random selections within each split.
-    %
-    Each dataset uses its own vertical
-    scale.}
+    \caption{Macro F1 as a function of the selection-cost budget. We compare \Fname with the two budget-matched selection rules at 25\%, 50\%, and 75\%; the star marks the unconstrained pool of 66 detectors. Error bars are 95\% confidence intervals over five repeated splits after averaging the 20 random selections within each split. Each dataset uses its own vertical scale.}
     \label{fig:eval-budget-utility}
 \end{figure*}
 
-\bheading{Overall detection quality} At the 50\% selection cost budget,
-\Fname uses 49.5\%
-to 50.0\% of the full pool selection cost.
-%
-Its absolute mean macro F1 gap from the full pool is at most 0.0052 on
-MalDroid, Darknet, and DoH, whereas the gap reaches 0.0258 on DDoS.
-%
-Thus, the same operating point closely tracks full pool mean quality on three
-tasks while exposing DDoS as the principal quality limit.
-%
-Across \Fname's budget sweep in Fig.~\ref{fig:eval-budget-utility}, MalDroid
-shows the clearest improvement and DoH rises only slightly, whereas DDoS and
-Darknet are non monotonic.
-%
-Additional budget therefore does not universally guarantee higher test macro
-F1 in these experiments.
+\bheading{Detection quality and source coverage}
+At the 50\% operating point, \Fname consumes 49.5\%--50.0\% of the full-pool selection cost.
+Across all four tasks, its absolute mean macro-F1 gap from the full detector pool remains below 0.028.
+The gaps are at most 0.0052 on MalDroid, Darknet, and DoH, while DDoS has the largest gap at 0.0258.
+Thus, even the largest observed loss remains small relative to the roughly one-half reduction in deployment cost.
 
-\bheading{Weak class behavior and source support} Across MalDroid, Darknet,
-and DoH, the selected set at the 50\% selection cost budget changes accuracy by
-at most
-0.0046 and minimum evaluated class recall by at most 0.0061 relative to the
-full pool.
-%
-On DDoS, \Fname loses 0.0296 accuracy but only 0.0094 minimum evaluated class
-recall.
-%
-On Darknet, even the full pool reaches only 0.0077 minimum evaluated class
-recall, compared with 0.0058 after selection.
-%
-The low Darknet recall is therefore visible in both configurations rather than
-being introduced by budgeted selection.
-%
-More importantly, \Fname reaches the maximum weighted source support available
-under the budget on all four datasets.
+The budget sweep in Fig.~\ref{fig:eval-budget-utility} also shows that more selected cost does not automatically produce higher sealed-test macro F1.
+MalDroid improves most clearly as the budget increases, DoH changes only slightly, and DDoS and Darknet are non-monotonic.
+This is consistent with our design motivation: once source coverage is protected, adding more frozen detectors can introduce redundant or less useful current behavior rather than guaranteeing a better stacker.
 
-\bheading{Budget matched baselines} Relative to random selection, \Fname has a
-higher mean macro F1 on DDoS, MalDroid, and Darknet, while the DoH means differ
-by 0.0010.
-%
-Relative to individual utility ranking, \Fname has a higher mean on MalDroid
-and Darknet and differs by 0.0005 on DoH.
-%
-DDoS reveals the intended exception: individual utility ranking gains 0.0150
-macro F1 at the 50\% selection cost budget but retains only 0.910 of the
-available weighted source support, whereas \Fname attains the full support
-value of 1.0.
-%
-This comparison makes \Fname's advantage explicit: it preserves the declared
-source coverage before refining current utility rather than claiming universal
-test score dominance.
+We next check whether the communication savings hide a failure on weak classes.
+Relative to the full pool, the 50\% selected set changes accuracy by at most 0.0046 and minimum evaluated class recall by at most 0.0061 on MalDroid, Darknet, and DoH.
+On DDoS, the accuracy gap is 0.0296 but the minimum evaluated class-recall gap is only 0.0094.
+Darknet is a useful cautionary case: even the full pool reaches only 0.0077 minimum evaluated class recall, compared with 0.0058 after selection.
+The poor weakest-class recall is therefore already present in the underlying candidate pool rather than being created by budgeted selection.
+Most importantly for our primary objective, \Fname reaches the maximum weighted source class coverage available under the 50\% budget on all four datasets.
 
-\bheading{Takeaway} At the 50\% selection cost budget, \Fname attains the
-maximum weighted source support available under that budget and remains close
-to the full pool mean quality on three of four tasks, while DDoS reveals the
-deliberate support--utility tradeoff.
+\bheading{Why coverage priority matters}
+The comparison with individual-utility ranking shows why we do not optimize current average performance alone.
+On MalDroid and Darknet, \Fname has the higher mean macro F1, while the two methods are nearly identical on DoH.
+DDoS exposes the intended conflict most clearly: the utility-only baseline gains 0.0150 macro F1 over \Fname, but its weighted source coverage falls to 0.910, whereas \Fname retains the maximum value of 1.0.
+In other words, the utility-only selector buys a small current-score gain by dropping part of the historical attack-class coverage.
+Our ordered objective explicitly rules out that exchange.
+
+Overall, RQ1 shows the deployment advantage targeted by the paper: at roughly half the selection cost, we preserve the maximum source coverage available under the budget and keep macro-F1 loss below 0.028 across all four tasks.
+The DDoS comparison also provides a concrete case in which the source-coverage priority is active rather than merely formal.
 
 \subsection{RQ2: Client Label Heterogeneity}
 
-RQ2 separates two consequences of label heterogeneity: whether a valid
-multiclass federation can be constructed and, conditional on feasibility,
-whether detection quality degrades.
-%
-We evaluate both naturally occurring and controlled label distributions.
-%
-To preserve the original deployment structure, we first keep the original
-DDoS and Darknet client assignments and repeat only the data split.
-%
-To isolate label imbalance, we then draw client partitions with Dirichlet
-parameters $\alpha\in\{10,1,0.5,0.1\}$ and compare them with an independent
-and identically distributed allocation.
-%
-We require every accepted partition to provide at least two local training
-classes to each client so that each local detector remains a multiclass model.
-%
-Figure~\ref{fig:eval-heterogeneity} separates partition feasibility from
-detection quality as client label imbalance increases.
+The previous experiment starts from a fixed source candidate pool.
+We now study how the heterogeneity that creates such a pool can affect the integration problem before and after selection.
+We separate two effects: whether we can construct valid multiclass source detectors at all, and, when we can, whether stronger source-label imbalance consistently reduces the final macro F1.
+
+We evaluate both the original DDoS and Darknet client assignments and controlled partitions drawn from Dirichlet distributions with $\alpha\in\{10,1,0.5,0.1\}$, together with an IID allocation.
+Smaller $\alpha$ creates stronger label imbalance.
+For the controlled partitions, we require every accepted source client to contain at least two training classes so that its frozen candidate remains a multiclass detector.
+Figure~\ref{fig:eval-heterogeneity} reports both partition feasibility and the resulting detection quality.
 
 \begin{figure*}[t]
     \centering
     \includegraphics[width=0.98\textwidth]{figures/eval_heterogeneity.pdf}
-    \caption{Effect of client label heterogeneity on partition feasibility and
-    macro F1 at the 50\% selection cost budget, where smaller Dirichlet $\alpha$
-    denotes stronger imbalance.
-    %
-    (a) counts valid partitions among ten fixed
-    seeds. (b) reports Jensen--Shannon divergence. (c) and (d)
-    report macro F1.
-    %
-    Error bars are 95\% confidence intervals over valid seeds,
-    with $n=10$ except for MalDroid at $\alpha=1$, where $n=5$.
-    %
-    The reason of missing
-    MalDroid points in (b) is that no seed satisfies the two class per client
-    requirement.}
+    \caption{Effect of source-client label heterogeneity at the 50\% selection-cost budget. Smaller Dirichlet $\alpha$ indicates stronger imbalance. Panel (a) counts valid partitions among ten fixed seeds, panel (b) reports client-label Jensen--Shannon divergence, and panels (c)--(d) report macro F1 for Darknet and MalDroid. Error bars are 95\% confidence intervals over valid seeds; $n=10$ except for MalDroid at $\alpha=1$, where $n=5$.}
     \label{fig:eval-heterogeneity}
 \end{figure*}
 
-\bheading{Partition feasibility} Darknet remains feasible for all ten seeds at every evaluated level, even as measured divergence rises from 0.0008 under the balanced allocation to 0.3516 at $\alpha=0.1$.
-%
-For MalDroid, all ten balanced and all ten $\alpha=10$ partitions are usable,
-but only five $\alpha=1$ partitions satisfy the same rule.
-%
-At $\alpha=0.5$ and $0.1$, none of the ten fixed seeds produces a valid
-partition of the five class training pool across 66 clients while preserving
-at least two classes per client, despite allowing up to 100 generation
-attempts per seed.
-%
-In these settings, partition feasibility becomes a limiting factor before the
-selector can be evaluated.
+\bheading{When heterogeneity limits candidate construction}
+Darknet remains feasible for all ten seeds at every evaluated heterogeneity level, even as the measured client-label divergence rises from 0.0008 under IID allocation to 0.3516 at $\alpha=0.1$.
+MalDroid behaves differently because it has only five source classes spread across the same 66 clients.
+All ten IID and all ten $\alpha=10$ partitions are usable, but only five $\alpha=1$ partitions satisfy the two-class requirement.
+At $\alpha=0.5$ and $0.1$, none of the ten fixed seeds produces a valid partition despite allowing up to 100 generation attempts per seed.
+For these extreme settings, the bottleneck appears before \Fname runs: the source silos cannot produce the required multiclass candidate pool.
 
-\bheading{Quality within feasible partitions} Conditional on a usable
-partition, neither dataset shows a monotonic macro F1 decline as heterogeneity
-increases.
-%
-Darknet remains between 0.5895 and 0.5976 at the 50\% selection cost budget,
-while MalDroid remains between 0.8328 and 0.8375 over its usable range.
-%
-These narrow descriptive ranges indicate that feasibility, rather than a
-consistent loss of aggregate quality, is the more visible effect of stronger
-heterogeneity in the controlled experiment.
+\bheading{Quality after a valid pool exists}
+Conditional on a usable candidate pool, stronger heterogeneity does not produce a monotonic decline in macro F1.
+Darknet stays between 0.5895 and 0.5976 at the 50\% budget, while MalDroid stays between 0.8328 and 0.8375 over the feasible range.
+These narrow descriptive ranges suggest that, in this controlled experiment, increasing source-label imbalance affects candidate-pool feasibility more clearly than it affects aggregate detection quality once a valid pool has already been constructed.
 
-\bheading{Original client layouts} Under the original assignments, additional
-budget is reflected more strongly in the weakest class metric.
-%
-As the budget rises from 25\% to 75\%, Darknet macro F1 increases from 0.6162
-to 0.6290, while minimum evaluated class recall increases from 0.0452 to
-0.0964.
-%
-Over the same range, DDoS macro F1 changes from 0.6039 to 0.6104, while
-minimum evaluated class recall changes from 0.0568 to 0.0773.
-%
-The extra budget is therefore reflected more strongly in the worst observed
-class than in the aggregate score for these two layouts.
+The original client layouts show a related effect at the class level.
+As the budget increases from 25\% to 75\%, Darknet macro F1 rises from 0.6162 to 0.6290, while its minimum evaluated class recall rises more substantially from 0.0452 to 0.0964.
+For DDoS, macro F1 changes from 0.6039 to 0.6104 over the same budget range, while minimum class recall increases from 0.0568 to 0.0773.
+Thus, additional deployment budget can be more visible in the weakest observed class than in an aggregate score.
 
-\bheading{Support priority ablation} We remove only the source support
-priority while retaining the same secondary search.
-%
-Across 30 comparisons with the original assignments and 225 comparisons with
-controlled assignments, both versions choose the same set and obtain the same
-macro F1, minimum evaluated class recall, communication, and attained support.
-%
-The support constraint is therefore not binding in these evaluated layouts
-because the secondary refinement already reaches the maximum available
-support.
-%
-This result does not show that source priority is redundant for arbitrary
-candidate pools.
-
-\bheading{Takeaway} Within feasible partitions, controlled heterogeneity has
-limited descriptive impact on macro F1, while the smaller MalDroid task reveals
-a clear partition feasibility limit and the evaluated support constraint
-remains not binding.
+\bheading{When the hard coverage priority becomes inactive}
+We also remove only the explicit source-coverage priority while keeping the same secondary refinement.
+Across 30 comparisons on the original assignments and 225 comparisons on the controlled assignments, the two variants choose the same set and therefore obtain the same macro F1, minimum class recall, communication, and source coverage.
+This result does not mean that the coverage-first objective is unnecessary.
+Instead, it identifies the complementary case to DDoS in RQ1: when the secondary search already reaches the maximum available source coverage, the hard priority is non-binding; when a utility-oriented selector would trade coverage away, the priority changes the result and prevents that loss.
 
 \subsection{RQ3: Selection Signals and Learners}
 
-RQ3 distinguishes selector level choices from learner level choices.
-%
-We first ablate the three secondary signals, then vary the support semantics,
-and finally compare local and shared learning backends.
+After the primary coverage value has been fixed, \Fname still needs to choose among coverage-equivalent detector sets and then fit the shared stacker.
+RQ3 therefore separates design choices at these two levels.
+We first remove the three secondary signals one at a time, then vary the source-coverage settings, and finally compare the local and shared learning backends.
 
-\bheading{Secondary selection signals} After the primary objective fixes
-maximum class support, \Fname uses record level utility, conservative classwise
-scores, and behavioral representativeness to order the remaining feasible
-sets.
-%
-We remove these three signals one at a time while every variant still attains
-the maximum support.
-%
-At the 50\% selection cost budget, removing record level utility lowers DDoS
-macro F1 by 0.0190, whereas removing behavioral representativeness raises it by
-0.0181.
-%
-These effects change direction across datasets and budgets, and no removal
-produces a statistically significant change after Holm correction.
-%
-No single signal therefore provides an independent, universal improvement in
-the evaluated settings.
-%
-Instead, the signals collectively order candidate sets that already attain the
-same maximum support.
+\bheading{Secondary selection signals}
+Recall that $U$ measures record-level utility, $C_{\mathrm{pred}}$ measures conservative classwise utility, and $D_{\mathrm{rep}}$ measures how well the selected set represents the behavior of the eligible pool.
+In every ablation, we keep the exact primary source coverage fixed and remove only one of these secondary terms.
+At the 50\% budget, removing $U$ lowers DDoS macro F1 by 0.0190, while removing $D_{\mathrm{rep}}$ raises it by 0.0181.
+Across datasets and budgets, however, the direction of these changes is not consistent, and no single removal remains statistically significant after Holm correction.
+We therefore do not claim that any one secondary term provides a universal independent gain.
+Their role is narrower: together they rank candidate sets after the coverage requirement has already been satisfied.
 
-\bheading{Semantic settings} We vary
-$n_{\min}\in\{1,2,5,10\}$ and replace inverse square root class weights with
-uniform weights.
-%
-Across two fixed Darknet layouts and two learner combinations, these choices
-leave the selected set, support, macro F1, and minimum evaluated class recall
-unchanged.
-%
-These settings provide no tuning benefit in the tested layouts, although the
-result should not be generalized beyond them.
-%
-By contrast, the learning backends produce visible score differences, as
-Table~\ref{tab:eval-architecture} shows.
+\bheading{Source-coverage settings}
+We next vary the minimum source count $n_{\min}\in\{1,2,5,10\}$ and replace the inverse-square-root class weights with uniform weights.
+Across two fixed Darknet layouts and two learner combinations, these changes leave the selected set, attained source coverage, macro F1, and minimum evaluated class recall unchanged.
+This robustness is useful because it shows that the reported Darknet result is not driven by one fragile choice of $n_{\min}$ or class-weighting rule.
+At the same time, the lack of change means these settings provide no empirical tuning benefit in the tested layouts, so we do not generalize that insensitivity beyond them.
 
-% \input{eval/tables/architecture}
 \begin{table}[t]
-    \centering
-    \caption{Macro F1 at the 50\% selection-cost budget for each local-to-shared learner pair; entries are means over five splits, and bold marks the largest descriptive mean for each dataset.}
-    \label{tab:eval-architecture}
-    \footnotesize
-    \setlength{\tabcolsep}{2.8pt}
-    \begin{tabular}{@{}lrrrr@{}}
-        \toprule
-        Dataset & \makecell{XGB\\$\to$XGB} & \makecell{LGBM\\$\to$XGB} & \makecell{XGB\\$\to$LGBM} & \makecell{LGBM\\$\to$LGBM} \\
-        \midrule
-        DDoS & 0.617 & \textbf{0.635} & 0.633 & 0.615 \\
-        MalDroid & 0.806 & 0.833 & 0.827 & \textbf{0.840} \\
-        Darknet & 0.578 & 0.585 & 0.592 & \textbf{0.595} \\
-        DoH & 0.592 & 0.591 & \textbf{0.607} & 0.606 \\
-        \bottomrule
-    \end{tabular}
+\centering
+\caption{Macro F1 at the 50\% selection-cost budget for each local-to-shared learner pair. Entries are means over five splits; bold marks the largest descriptive mean for each dataset.}
+\label{tab:eval-architecture}
+\footnotesize
+\setlength{\tabcolsep}{2.8pt}
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+Dataset & \makecell{XGB\\$\to$XGB} & \makecell{LGBM\\$\to$XGB} & \makecell{XGB\\$\to$LGBM} & \makecell{LGBM\\$\to$LGBM} \\
+\midrule
+DDoS & 0.617 & \textbf{0.635} & 0.633 & 0.615 \\
+MalDroid & 0.806 & 0.833 & 0.827 & \textbf{0.840} \\
+Darknet & 0.578 & 0.585 & 0.592 & \textbf{0.595} \\
+DoH & 0.592 & 0.591 & \textbf{0.607} & 0.606 \\
+\bottomrule
+\end{tabular}
 \end{table}
 
-\bheading{Learning backends} On DDoS, LightGBM local detectors with an XGBoost
-shared learner obtain the largest descriptive mean.
-%
-On MalDroid and Darknet, LightGBM obtains the largest mean at both levels.
-%
-On DoH, XGBoost local detectors with a LightGBM shared learner lead by a small
-margin.
-%
-After Holm correction, only the two matched DoH comparisons between shared
-learners remain statistically significant. In both, the XGBoost shared learner
-is lower than its LightGBM alternative.
-%
-Backend choice causes more visible numerical variation than the tested
-semantic settings, but the corrected statistical results are limited to
-DoH.
+\bheading{Learning backends}
+Table~\ref{tab:eval-architecture} shows that backend choice creates larger descriptive differences than the source-coverage settings above.
+On DDoS, LightGBM local detectors with an XGBoost shared learner give the largest mean.
+On MalDroid and Darknet, LightGBM gives the largest mean at both levels.
+On DoH, XGBoost local detectors with a LightGBM stacker lead by a small margin.
+After Holm correction, only the two matched DoH comparisons between shared learners remain statistically significant, and in both cases the LightGBM shared learner is better than its XGBoost counterpart.
+We therefore treat the learner backend as a deployment tuning choice rather than a source of \Fname's core advantage.
 
-\bheading{Takeaway} The evaluated selection signals and semantic settings do
-not yield a universal independent gain, whereas learning backend choice is the
-more actionable tuning dimension, with corrected results limited to DoH.
+Taken together, RQ3 supports the intended separation between the primary and secondary stages.
+The maximum source coverage is stable across these tested secondary variations, while the exact predictive ranking among coverage-equivalent sets remains task dependent.
 
 \subsection{RQ4: Score Randomization}
 
-RQ4 quantifies the detection cost of a formally private score release rather
-than estimating empirical attacker success.
-%
-We freeze the selected set and add independent Laplace noise with scale
-$2/\epsilon$ to every score block used for shared stacker training.
-%
-As $\epsilon$ decreases, the noise grows stronger.
-%
-Here, $\epsilon$ is the privacy parameter for one released score block.
-%
-Under the public label neighboring relation in
-Theorem~\ref{thm:local_score_privacy}, two neighboring records share a label
-and differ in one feature vector.
-%
-Under this relation, each released block satisfies record level local
-differential privacy conditional on the public label.
-%
-When one record contributes $s$ released blocks, sequential composition gives
-a total parameter of $s\epsilon$ for that upload.
-%
-During the centralized sensitivity experiment, we sample the same noise
-distribution after selection and keep the test encoding fixed so that the
-curves isolate the effect on stacker training.
+The previous experiments use unperturbed selected scores.
+We now enable the optional local privacy mechanism introduced in Eq.~\ref{eq:local_laplace_release} and measure the utility cost of stronger randomization.
+We freeze the selected detector set and vary the per-block privacy parameter $\epsilon_b$; smaller $\epsilon_b$ means stronger Laplace noise.
+Theorem~\ref{thm:local_score_privacy} already gives the formal privacy guarantee, so here we focus on what the perturbation does to detection behavior.
 
 \begin{figure}[t]
     \centering
     \includegraphics[width=0.98\columnwidth]{figures/eval_privacy_utility.pdf}
-    \caption{Effect of Laplace score randomization on DDoS.
-    %
-    Panel (a) reports
-    macro F1, and panel (b) reports the fraction of predictions labeled benign
-    that are attacks.
-    %
-    From left to right, per block $\epsilon$ decreases and
-    noise strength increases.
-    %
-    Curves compare \Fname at the 50\% selection cost budget
-    with the full pool, and error bars are 95\% confidence intervals over the same
-    five splits.
-    %
-    The displayed $\epsilon$ is per released block, before
-    composition.}
+    \caption{Effect of Laplace score randomization on DDoS. Panel (a) reports macro F1 and panel (b) reports attack leakage, the fraction of predictions labeled benign that are attacks. From left to right, the per-block privacy parameter decreases and noise becomes stronger. We compare \Fname at the 50\% selection-cost budget with the full detector pool; error bars are 95\% confidence intervals over the same five splits.}
     \label{fig:eval-privacy-utility}
 \end{figure}
 
-\bheading{Aggregate detection quality} Without added noise, the selected set
-at the 50\% selection cost budget and the full pool obtain macro F1 scores of
-0.6153 and 0.6412.
-%
-At the strongest evaluated setting, $\epsilon=1$, the scores fall to 0.5105
-and 0.5298.
-%
-Relative to their no noise settings, the selected set loses 0.1048 and the
-full pool loses 0.1114.
-%
-The two configurations therefore exhibit similar absolute degradation under
-the strongest perturbation.
+\bheading{Aggregate detection quality}
+Without added noise, the 50\% selected set and the full detector pool obtain macro F1 values of 0.6153 and 0.6412, respectively.
+At the strongest evaluated perturbation, $\epsilon_b=1$, these values fall to 0.5105 and 0.5298.
+Relative to their own nonprivate settings, the selected set loses 0.1048 and the full pool loses 0.1114.
+The two configurations therefore suffer similar absolute degradation, which suggests that selecting a smaller detector set does not amplify the observed macro-F1 cost of score randomization.
 
-\bheading{Operational attack leakage} Attack leakage reveals a sharper
-security cost than macro F1 alone.
-%
-For the selected set at the 50\% selection cost budget, it rises from 0.055
-without noise to 0.262 at $\epsilon=5$ and 0.583 at $\epsilon=1$.
-%
+\bheading{Operational attack leakage}
+Macro F1 alone understates the security impact of the strongest perturbation.
+For the 50\% selected set, attack leakage rises from 0.055 without noise to 0.262 at $\epsilon_b=5$ and 0.583 at $\epsilon_b=1$.
 For the full pool, it rises from 0.056 to 0.193 and then to 0.644.
-%
-At $\epsilon=1$, more than half of the predictions labeled benign are attacks
-under both configurations.
-%
-A moderate aggregate score can therefore conceal an operationally costly
-failure, motivating the joint report of macro F1 and attack leakage.
-
-\bheading{Takeaway} Stronger per block score protection imposes a visible
-detection cost and can make benign predictions operationally unreliable, while
-the selected set does not exhibit a larger absolute degradation than the full
-pool.
+Thus, at $\epsilon_b=1$, more than half of the predictions labeled benign are actually attacks under both configurations.
+This is operationally more severe than the aggregate macro-F1 curve alone suggests.
+We therefore report privacy together with both aggregate detection quality and attack leakage rather than treating one summary score as sufficient.
 
 \subsection{RQ5: Scalability and Runtime}
 
-RQ5 evaluates three system properties in order: exactness on enumerable
-instances, scaling under larger candidate and class dimensions, and the
-end to end communication tradeoff.
+Our primary solver is exact, but Theorem~\ref{thm:primary_solver} shows that its state space can grow exponentially with the number of target classes $C$.
+RQ5 therefore checks three practical questions: whether the implementation matches exhaustive search when enumeration is possible, how runtime changes as the candidate and class dimensions grow, and what end-to-end communication saving we obtain at the evaluated deployment scale.
 
-\bheading{Exactness audit} We compare \Fname with exhaustive search at $C=8$
-and $M\in\{8,10,12,16\}$.
-%
-Across ten repetitions at every size, the solver matches the exhaustive
-optimum in all 40 comparisons.
-%
-Across these sizes, its median time ranges from 37.70 to 118.72 ms, while
-every 95th percentile remains below 125 ms.
-%
-This audit validates the implementation against an enumerable ground truth, but it
-does not by itself establish runtime at larger scales.
-%
-We next vary the number of candidates and attack classes separately in
-Fig.~\ref{fig:eval-solver-scaling}.
+\bheading{Exactness audit}
+We first compare the dynamic program with exhaustive search at $C=8$ and $M\in\{8,10,12,16\}$.
+Across ten repetitions at each candidate-pool size, the solver reaches exactly the same primary coverage as exhaustive search in all 40 comparisons.
+Its median runtime ranges from 37.70 to 118.72~ms, and every 95th percentile remains below 125~ms.
+This experiment validates the implementation against an enumerable ground truth; it does not, by itself, claim that exhaustive search or the same runtime is practical at larger scales.
 
 \begin{figure*}[t]
     \centering
     \includegraphics[width=0.96\textwidth]{figures/eval_solver_scaling.pdf}
-    \caption{Exact selection time in two independently sampled sweeps.
-    %
-    Panel
-    (a) fixes 12 attack classes and varies the candidate pool, while panel (b)
-    fixes 66 candidates and varies the attack class count.
-    %
-    The vertical axis
-    is logarithmic, and points are medians and upper bars are 95th percentiles over
-    ten repetitions.}
+    \caption{Scaling of the exact primary selector. Panel (a) fixes 12 attack classes and increases the candidate pool, while panel (b) fixes 66 candidates and increases the attack-class count. The vertical axis is logarithmic; points are medians and upper bars are 95th percentiles over ten repetitions.}
     \label{fig:eval-solver-scaling}
 \end{figure*}
 
-\bheading{Scaling behavior} In the independently sampled candidate sweep with
-12 attack classes, \Fname selects from 66 candidates in a median of 1.99
-seconds and from 256 candidates in 33.73 seconds.
-%
-In the independent class sweep with 66 candidates, raising the attack
-vocabulary from 12 to 20 classes increases the median from 2.95 to 100.10
-seconds.
-%
-Within the evaluated range, runtime becomes especially sensitive as the class
-vocabulary approaches 20 classes, making the class dimension the more visible
-scaling pressure near the upper end of the experiment.
+\bheading{Scaling behavior}
+We next vary the two problem dimensions separately in Fig.~\ref{fig:eval-solver-scaling}.
+With 12 attack classes fixed, increasing the candidate pool from 66 to 256 raises the median selection time from 1.99 to 33.73~s.
+With 66 candidates fixed, increasing the attack vocabulary from 12 to 20 classes raises the median from 2.95 to 100.10~s.
+The second increase is much sharper, which matches the structure of the bitmask solver: the candidate count enters linearly in the transition bound, while the class count controls the $2^C$ mask space.
+Thus, within our evaluated range, the attack vocabulary is the more visible scaling pressure near the upper end.
 
-\bheading{System level tradeoff} To connect runtime and communication savings
-with detection quality, Table~\ref{tab:eval-system-cost} reports the combined
-result.
-%
-For runtime, we include every evaluated rule and budget within one data split.
+\begin{table}[t]
+\centering
+\caption{System outcome at the 50\% selection-cost budget.}
+\label{tab:eval-system-cost}
+\footnotesize
+\setlength{\tabcolsep}{3.0pt}
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+Dataset & \makecell{Full$\to$selected\\(MiB)} & Saved & $\Delta$F1 \\
+\midrule
+DDoS & 7040.05$\to$3489.07 & 50.4\% & 0.0258 \\
+MalDroid & 662.66$\to$335.94 & 49.3\% & 0.0052 \\
+Darknet & 3436.78$\to$1732.29 & 49.6\% & 0.0019 \\
+DoH & 2942.76$\to$1488.51 & 49.4\% & 0.0009 \\
+\bottomrule
+\end{tabular}
+\end{table}
 
-% \input{eval/tables/cost}
-\begin{table*}[t]
-    \centering
-    \caption{Logical communication and macro-F1 loss at the 50\% selection-cost budget together with centralized replay runtime; runtime is the mean time over five splits to evaluate every selection rule and budget on one machine, rather than one selection call.}
-    \label{tab:eval-system-cost}
-    \small
-    \setlength{\tabcolsep}{4.2pt}
-    \begin{tabular}{@{}lrlrrrr@{}}
-        \toprule
-        Dataset & \makecell{Runtime (min)} & Dominant stage & \makecell{Full pool (MiB)} & \makecell{\Fname (MiB)} & \makecell{Communication saved} & \makecell{Macro F1 loss} \\
-        \midrule
-        DDoS & 50.09 & Selection (34.2\%) & 7,040.05 & 3,489.07 & 50.4\% & 0.0258 \\
-        MalDroid & 0.78 & Stacker training (74.9\%) & 662.66 & 335.94 & 49.3\% & 0.0052 \\
-        Darknet & 42.51 & Stacker training (89.1\%) & 3,436.78 & 1,732.29 & 49.6\% & 0.0019 \\
-        DoH & 8.54 & Stacker training (33.2\%) & 2,942.76 & 1,488.51 & 49.4\% & 0.0009 \\
-        \bottomrule
-    \end{tabular}
-\end{table*}
+\bheading{End-to-end deployment cost}
+Table~\ref{tab:eval-system-cost} connects the solver study back to the main deployment objective.
+Across the four tasks, the 50\% selection-cost setting reduces total logical communication by 49.3\%--50.4\% relative to the full pool, while the macro-F1 loss stays below 0.028.
+The three smallest gaps are at or below 0.0052; DDoS again has the largest gap but still retains the maximum weighted source class coverage from RQ1.
+Thus, the cost reduction reported in the abstract is not only a selector-level budget reduction: after we include model delivery, selected score upload, and the fixed protocol terms, the end-to-end logical communication is still approximately halved.
 
-
-\bheading{Communication--quality tradeoff} Across the four tasks, \Fname
-reduces total logical communication by between 49.3\% and 50.4\% while losing
-at most 0.0258 macro F1 relative to the full pool.
-%
-Across MalDroid, Darknet, and DoH, the absolute mean loss remains at or below
-0.0052.
-%
-For DDoS, the larger quality change still preserves the maximum available
-weighted source support reported in RQ1.
-%
-The practical advantage is therefore an approximately one half reduction in
-logical communication with near full pool mean quality on three tasks and an
-explicit support--utility tradeoff on DDoS.
-
-\bheading{Runtime composition} When one split evaluates every rule and
-budget, its mean duration ranges from 0.78 to 50.09 minutes.
-%
-For MalDroid and Darknet, stacker training dominates the total runtime.
-%
-By contrast, selection takes the largest share on DDoS.
-%
-The main computation cost therefore depends on the task rather than on
-selection alone.
-%
-At the scale of 66 candidates, the exact selector itself finishes in seconds.
-
-\bheading{Takeaway} At the evaluated deployment scale, exact selection is
-practical and nearly halves logical communication, while the rapid rise near
-20 attack classes defines the main observed scalability limit.
-
-
-
-
+The total centralized replay time for one split, including every evaluated selection rule and budget, ranges from 0.78 to 50.09 minutes depending on the dataset.
+Stacker fitting dominates MalDroid and Darknet, while selection takes the largest share on DDoS.
+At the main scale of 66 candidates, the exact selector itself finishes in seconds.
+We therefore view the current practical limit as growth in the attack-class vocabulary rather than the 66-candidate deployment scale used in the main experiments.
 
 \section{Discussion and Conclusion}
 \label{sec:discussion_conclusion}
 
-In summary, \Fname enables post-training integration of authorized pretrained intrusion detectors when historical source records are no longer accessible.
-It aligns heterogeneous detector outputs, preserves the best available weighted source class coverage under a deployment budget, and then improves current predictive behavior without sacrificing that coverage.
-Across four cybersecurity datasets, \Fname approximately halves logical communication under a 50\% selection-cost budget while maintaining detection performance close to the full detector pool on most tasks.
+In summary, we study selective integration for the setting in which raw historical source records are no longer available but frozen intrusion detectors and coarse source metadata remain authorized for reuse.
+With \Fname, we align heterogeneous outputs, maximize weighted source class coverage under a hard deployment budget, refine current predictive behavior without reducing that coverage, and fit one shared stacker from the selected outputs.
+Across four datasets, the 50\% selection-cost setting reduces total logical communication by approximately half while keeping macro-F1 loss below 0.028 relative to the full detector pool.
 
-\noindent\textbf{Coverage Priority and Optimization Guarantees.}
-The lexicographic objective is appropriate when preserving source class coverage is a deployment requirement rather than a quantity that can be freely traded for average predictive quality.
-By optimizing weighted coverage before current predictive behavior, it prevents secondary gains from compensating for losses in priority classes without requiring instance-specific weighting coefficients.
-Importantly, source coverage indicates which attack classes were represented during training, but does not guarantee current competence after distribution shift; coverage and class-specific predictive utility should therefore be examined separately.
-Within the calibrated candidate pool, the dynamic program exactly solves the primary coverage problem, whereas the subsequent additions and replacements preserve this optimum but provide only local, rather than global, guarantees for the secondary objective.
-The calibration guarantees also rely on the stated mixture-shift assumptions, and deployment under larger distribution shifts requires renewed validation.
+\noindent\textbf{When coverage priority matters.}
+We use a strict coverage-first objective because source class coverage and current predictive quality answer different questions.
+The DDoS utility-only baseline shows a case in which this priority changes the result: it gains 0.0150 macro F1 but reduces weighted source coverage from 1.0 to 0.910.
+The heterogeneity ablation shows the complementary case in which the priority is non-binding because the secondary search already reaches maximum coverage.
+Together, these results clarify the role of the ordered objective: it does not force a different set when the current-behavior search already preserves all available coverage, but it prevents coverage loss when current utility would otherwise trade it away.
 
-\noindent\textbf{Deployment Benefits and Practical Limits.}
-The reported communication savings measure logical bytes for model delivery and aligned score uploads, rather than distributed latency or protocol overhead.
-Under the 50\% selection-cost budget, \Fname achieves maximum weighted source coverage and near-full-pool predictive quality on MalDroid, Darknet, and DoH, while the larger gap on DDoS shows that maximum source coverage does not necessarily imply full-pool predictive parity.
-The mixed effects of secondary signals across datasets further suggest that their benefit is task dependent rather than universal.
-Moreover, the observed runtime increase as the attack vocabulary grows identifies the number of classes as an important scaling factor for the exact coverage solver.
+Our theoretical guarantees follow the same separation.
+The dynamic program solves the primary coverage problem exactly for every processed instance, while the subsequent refinement preserves that optimum and is only locally stable with respect to the defined one-swap neighborhood.
+We do not claim a globally optimal secondary score.
+Likewise, the simultaneous calibration theorem remains valid after adaptive detector selection for the observed calibration mixture.
+The separate mixture-shift result makes an additional assumption---stable client--class conditional behavior with bounded mixture change---when connecting historical source support to current deployment utility.
+A deployment outside those assumptions requires renewed calibration or validation rather than relying on the same post-selection certificate.
 
-\noindent\textbf{Privacy Scope and Utility Tradeoff.}
-When enabled, score protection requires each client to perturb every selected score block with fresh Laplace noise before transmission.
-For a public record label, each perturbed block satisfies record-level, label-conditional local differential privacy, with privacy loss composing across multiple released blocks.
-This guarantee applies only to randomized score uploads and does not protect public labels or contributed detector parameters; likewise, the absence of historical records alone does not constitute a privacy guarantee.
-Experiments further show that stronger perturbation can reduce predictive utility and increase attack leakage, indicating that deployment should balance privacy protection against both aggregate detection quality and security-critical class performance.
+\noindent\textbf{Deployment scope and scaling.}
+The reported savings are logical bytes for the modeled workflow, including detector delivery and aligned score uploads; they are not measurements of network latency or protocol overhead in a geographically distributed deployment.
+The centralized replay nevertheless lets us separate the computational stages under identical data splits.
+At 66 candidates, exact selection finishes in seconds, but runtime grows quickly with the attack-class count because the bitmask state space depends on $2^C$.
+The current solver is therefore most suitable when the target attack vocabulary remains moderate; larger ontologies would require a different primary solver or an approximation that explicitly relaxes exactness.
 
-% \section{Discussion}\label{sec:discuss}
+\noindent\textbf{Privacy scope and utility tradeoff.}
+Our local privacy guarantee applies only to randomized selected score blocks.
+Public labels, contributed detector parameters, semantic maps, and source class-count metadata are outside that guarantee, and the absence of historical raw records should not itself be interpreted as a privacy guarantee.
+When enabled, the mechanism also introduces a measurable utility cost.
+The DDoS experiment shows why we examine this cost at more than one level: under strong perturbation, macro F1 degrades, but attack leakage reveals an even sharper operational failure in which more than half of benign-labeled predictions are attacks.
+A deployment should therefore tune score privacy using both aggregate predictive quality and security-critical error behavior.
 
-% The lexicographic objective is most useful when preserving the best available
-% source class coverage is a deployment requirement rather than a preference that
-% can be traded for aggregate predictive quality.
-% %
-% It maximizes weighted semantic coverage before comparing current predictive
-% scores, thereby preventing a secondary gain from compensating for any loss in
-% priority coverage.
-% %
-% A scalar objective can reproduce this order for a fixed pool when its minimum
-% positive coverage gap is known, but no universal finite coefficient works
-% across arbitrary class weights and candidate pools.
-% %
-% The ordered formulation therefore makes the priority explicit without
-% instance-specific scale tuning.
-% %
-% This priority does not equate provenance with competence: source counts record
-% which classes appeared during training, whereas class conditional Brier bounds
-% and sealed test metrics characterize current behavior.
-% %
-% Preserved semantic coverage is consequently not a certificate of high recall
-% or full pool predictive parity, so class critical deployments should inspect
-% coverage and current class utility separately.
-% %
-% With $\tau_L=1$, the upper confidence gate provides a finite sample
-% admissibility screen whose simultaneous calibration event remains valid after
-% adaptive selection.
-% %
-% Within this pool, the bitmask dynamic program computes the exact primary value
-% for each processed instance within the $10^6$-state implementation limit.
-% %
-% The subsequent additions and replacements preserve that value, but their
-% certificate covers only one swap neighbors and does not establish a global
-% secondary optimum, and the exhaustive solver is needed for a complete
-% lexicographic optimum on a small pool.
-% %
-% Because class records come from clients in different proportions, calibration
-% describes a record count weighted mixture.
-% %
-% Under the stated stable cell conditional risk and bounded mixture shift
-% assumptions, the post selection certificate links historical support to current
-% class utility, and a total variation shift of at most $\eta$ increases Brier
-% risk by at most $\eta$, and a deployment outside these assumptions requires renewed
-% validation.
-% %
-% The reported savings likewise concern logical bytes for model delivery and
-% aligned score blocks in a centralized simulation, not measured distributed
-% latency or protocol overhead.
-% %
-% At the 50\% selection cost budget, \Fname approximately halves this logical
-% communication while retaining near full pool macro F1 on MalDroid, Darknet, and
-% DoH.
-% %
-% The larger DDoS gap reveals the limit of this advantage: maximum available
-% source coverage does not imply universal quality parity with the full pool.
-% %
-% Moreover, secondary signal ablations change direction across tasks and none is
-% significant after Holm correction.
-% %
-% Learner backends produce more visible descriptive differences, but corrected
-% results are limited to DoH, making the backend an empirical tuning axis rather
-% than a universal source of improvement.
-% %
-% The privacy guarantee requires each client to perturb every selected score
-% block with fresh private Laplace randomness before upload.
-% %
-% With fixed selected detectors and semantic maps and a public record label, one
-% block assigned $\epsilon_b$ satisfies record level, label conditional local
-% differential privacy, while $s$ blocks compose to $s\epsilon_b$, and assigning
-% $\epsilon/s$ per block instead enforces a total per record score budget of
-% $\epsilon$.
-% %
-% The guarantee covers only the randomized score upload, not the public label or
-% contributed detector parameters, and the absence of historical records is not
-% itself a privacy guarantee.
-% %
-% Our centralized experiment samples the same post selection noise distribution
-% to measure utility, whereas a distributed realization must randomize scores on
-% the client before transmission.
-% %
-% Because attack leakage exceeds 0.5 at the strongest evaluated perturbation
-% even when macro F1 alone appears less severe, deployments should tune privacy
-% with both aggregate quality and security critical leakage in view.
-
-
-% \section{Conclusion}
-% \label{sec:conclusion}
-% In summary, \Fname integrates authorized pretrained intrusion detectors when their
-% historical source records cannot be pooled or revisited, while current records
-% remain available for calibration and stacker fitting.
-% %
-% It aligns heterogeneous outputs, screens current competence, exactly maximizes
-% the primary weighted source coverage, and then refines current behavior locally
-% without sacrificing that value before fitting one shared stacker.
-% %
-% At the 50\% selection cost budget, \Fname reduces total logical communication
-% by 49.3\% to 50.4\%, preserves the maximum available weighted source support,
-% and remains within 0.0052 macro F1 of the full pool on MalDroid, Darknet, and
-% DoH.
-% %
-% The larger 0.0258 DDoS gap confirms that preserved source coverage does not
-% guarantee full pool predictive parity, while the runtime increase near 20
-% classes identifies the attack vocabulary as the main observed scaling
-% limit.
-% %
-% Optional Laplace randomization provides record level, label conditional local
-% differential privacy for uploaded score blocks rather than for public labels or
-% detector parameters, and at the strongest evaluated perturbation, attack leakage
-% above 0.5 also reveals its operational utility cost.
-% %
-% Together, these results show that \Fname can convert a deployment budget into
-% substantial communication savings while making its coverage, quality, privacy,
-% and scalability tradeoffs explicit.
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+Overall, our results show that when historical training records cannot be revisited, a fixed subset of existing intrusion detectors can still be integrated in a budget-aware way without treating historical source coverage and current predictive quality as interchangeable.
+\Fname turns that requirement into an explicit selection order and achieves substantial communication savings while making the remaining limits---current-data quality, privacy, and solver scale---visible rather than hiding them behind one aggregate objective.
 
 % use section* for acknowledgment
 % \section*{Acknowledgment}
 
 % Omitted for anonymous review.
 
-% Can use something like this to put references on a page
-% by themselves when using endfloat and the captionsoff option.
 \ifCLASSOPTIONcaptionsoff
   \newpage
 \fi
 
-
-
 \bibliographystyle{IEEEtran}
-\bibliography{ref} 
-
-
-
-% % if you will not have a photo at all:
-% \begin{IEEEbiographynophoto}{John Doe}
-% Biography text here.
-% \end{IEEEbiographynophoto}
-
-% % insert where needed to balance the two columns on the last page with
-% % biographies
-% %\newpage
-
-% \begin{IEEEbiographynophoto}{Jane Doe}
-% Biography text here.
-% \end{IEEEbiographynophoto}
-
+\bibliography{ref}
 
 \end{document}
+
+% \subsection{Probability Alignment and Brier Calibration}
+
+% The selector needs comparable, bounded scores from detectors with different
+% native outputs.
+% %
+% We obtain these scores by evaluating the aligned probability vectors with a
+% full vector Brier score.
+
+% For calibration record $(x_t,y_t)$, let $e_{y_t}\in\mathbb R^{C+1}$ be the
+% one hot label vector with a zero $\bot$ coordinate.
+% %
+% We evaluate each candidate with the complete aligned output and define
+% \begin{equation}
+% \ell_{i,t}=\frac12\left\|q_i(x_t)-e_{y_t}\right\|_2^2,
+% \qquad
+% g_{i,t}=1-\ell_{i,t}\in[0,1].
+% \label{eq:brier_utility}
+% \end{equation}
+% Thus, $g_{i,t}$ is one full vector Brier utility rather than a collection of
+% coordinate wise scores.
+% %
+% Including the $\bot$ coordinate ensures that unsupported probability mass
+% reduces this utility.
+
+% \bheading{Eligibility screening} An empirical mean alone can admit a candidate
+% whose current risk is too high or too uncertain.
+% %
+% Using $N$ calibration records and failure level $\delta\in(0,1)$, we compute
+% \begin{equation}
+% \widehat\mu_i=\frac1N\sum_{t=1}^{N}g_{i,t},
+% \qquad
+% r=\sqrt{\frac{\log(4M/\delta)}{2N}},
+% \label{eq:overall_calibration}
+% \end{equation}
+% and admit candidate $i$ only if
+% \begin{equation}
+% R_i^+=1-\widehat\mu_i+r\le\tau_L.
+% \label{eq:risk_gate}
+% \end{equation}
+% The gate defines the calibration eligible pool
+% \begin{equation}
+% \widehat{\mathcal R}=\{i:R_i^+\le\tau_L\}.
+% \label{eq:eligible_pool}
+% \end{equation}
+% Eligibility therefore depends on an upper confidence bound on current risk,
+% not on empirical utility alone.
+
+% \bheading{Classwise scores} Average eligibility does not reveal whether a
+% candidate remains useful for a particular class.
+% %
+% We retain the class-specific scores needed by secondary refinement and the
+% later coverage certificate.
+% %
+% For class $c$, let $N_c=\sum_t\mathbf 1\{y_t=c\}$ and
+% \begin{equation}
+% \widehat\mu_{i,c}=\frac1{N_c}\sum_{t:y_t=c}g_{i,t}.
+% \end{equation}
+% Because \Fname requires every calibration class to occur, $N_c>0$.
+% %
+% We then compute the class conditional radius and lower utility as
+% \begin{equation}
+% r_c=\sqrt{\frac{\log(4MC/\delta)}{2N_c}},
+% \qquad
+% a_{i,c}=\left[\widehat\mu_{i,c}-r_c\right]_+,
+% \label{eq:class_lower_utility}
+% \end{equation}
+% where $[z]_+=\max\{0,z\}$.
+% %
+% The secondary objective and effective coverage certificate use $a_{i,c}$ as a
+% conservative class-specific score.
+
+% \bheading{Behavioral similarity} Eligibility alone does not prevent two
+% candidates from behaving almost identically.
+% %
+% \Fname measures this redundancy on a deterministically selected,
+% class stratified anchor set $\mathcal A$ and forms
+% \begin{equation}
+% z_i=\operatorname{vec}\left([q_i(x_t)]_{t\in\mathcal A}\right),
+% \qquad
+% \kappa_{i,k}=\left[
+% \frac{\langle z_i,z_k\rangle}{\|z_i\|_2\|z_k\|_2}
+% \right]_{0}^{1}.
+% \label{eq:behavior_similarity}
+% \end{equation}
+% Here, $[\cdot]_0^1$ clips numerical roundoff into $[0,1]$.
+% %
+% We use $\kappa_{i,k}$ in a facility location term that measures
+% representativeness, not as a pairwise diversity score.
+
+% \subsection{Coverage Prioritized Detector Selection}
+
+% Calibration measures current behavior, but it cannot preserve the range of
+% source side class support by itself.
+% %
+% We therefore make weighted semantic coverage the primary budgeted objective.
+
+% \bheading{Weighted source class coverage} For candidate $i$ and target class $c$,
+% let $H_{i,c}$ be the accepted source side support count after semantic mapping.
+% %
+% After fixing $n_{\min}>0$, define
+% \begin{equation}
+% \Gamma_{i,c}=\mathbf 1\{H_{i,c}\ge n_{\min}\}.
+% \label{eq:semantic_presence}
+% \end{equation}
+% If $H_c=\sum_i H_{i,c}>0$, we define
+% \begin{equation}
+% w_c=\frac{H_c^{-1/2}}{\sum_{d=1}^{C}H_d^{-1/2}},
+% \qquad
+% \sum_{c=1}^{C}w_c=1.
+% \label{eq:semantic_weights}
+% \end{equation}
+% Classes with less aggregate source support consequently receive greater
+% weight.
+% %
+% For any selected set $S$,
+% \begin{equation}
+% C_{\mathrm{sem}}(S)=
+% \sum_{c=1}^{C}w_c
+% \mathbf 1\{\exists i\in S:\Gamma_{i,c}=1\}.
+% \label{eq:semantic_coverage}
+% \end{equation}
+% Because the $\bot$ coordinate represents unsupported outputs, we exclude it
+% from this coverage.
+% %
+% Accordingly, $C_{\mathrm{sem}}$ measures the range of declared source
+% support rather than current predictive accuracy.
+
+% \bheading{Secondary behavioral objective} Once the primary coverage value is
+% fixed, current scores can distinguish among coverage equivalent sets.
+% %
+% With $h_\tau(z)=1-e^{-z/\tau}$, define
+% \begin{align}
+% U(S)
+% &=\frac1N\sum_{t=1}^{N}
+% h_{\tau_U}\!\left(\sum_{i\in S}g_{i,t}\right),
+% \nonumber\\
+% C_{\mathrm{pred}}(S)
+% &=\frac1C\sum_{c=1}^{C}
+% h_{\tau_C}\!\left(\sum_{i\in S}a_{i,c}\right),
+% \nonumber\\
+% D_{\mathrm{rep}}(S)
+% &=\frac1{|\widehat{\mathcal R}|}
+% \sum_{k\in\widehat{\mathcal R}}
+% \max_{i\in S}\kappa_{i,k}.
+% \label{eq:secondary_components}
+% \end{align}
+% The term $U$ summarizes record level utility, $C_{\mathrm{pred}}$ summarizes
+% conservative classwise scores, and $D_{\mathrm{rep}}$ rewards behavior that
+% represents the eligible pool.
+% %
+% The saturating functions impose diminishing returns so that repeated scores
+% cannot dominate the secondary comparison without bound.
+% %
+% Here and throughout the analysis, we set
+% $\max_{i\in\varnothing}\kappa_{i,k}=0$.
+% %
+% We average the classes uniformly in $C_{\mathrm{pred}}$, whereas
+% $C_{\mathrm{sem}}$ uses source support weights.
+% %
+% For nonnegative weights that sum to one, the secondary objective is
+% \begin{equation}
+% \Phi(S)=\lambda_U U(S)+\lambda_C C_{\mathrm{pred}}(S)
+% +\lambda_D D_{\mathrm{rep}}(S).
+% \label{eq:secondary_objective}
+% \end{equation}
+% \Fname uses this score only after fixing semantic coverage, so no increase in
+% $\Phi$ can compensate for a decrease in $C_{\mathrm{sem}}$.
+
+% \bheading{Budgeted selection procedure} The hard budget induces the feasible
+% family and exact primary target
+% \begin{equation}
+% \begin{aligned}
+% \mathcal F_B&=\left\{
+% \varnothing\ne S\subseteq\widehat{\mathcal R}:
+% \sum_{i\in S}b_i\le B
+% \right\},\\
+% W^\star&=\max_{S\in\mathcal F_B}C_{\mathrm{sem}}(S).
+% \end{aligned}
+% \label{eq:primary_value}
+% \end{equation}
+% We encode every $\Gamma_i$ as a $C$-bit mask and use a sparse dynamic program
+% to compute $W^\star$ and recover a least cost witness.
+% %
+% Starting from this exact primary witness, we spend remaining budget through
+% density-based fill, accepting the chosen candidate only while its absolute gain
+% exceeds $\varepsilon_{\mathrm{loc}}$.
+% %
+% We then accept a single swap replacement only when it preserves $W^\star$ and
+% improves $\Phi$ by more than the same fixed tolerance.
+% %
+% These operations refine the secondary objective locally without weakening the
+% exact primary guarantee.
+
+% For the support-priority ablation in Section~\ref{sec:experiments}, we also run the same fill--one-swap refinement without enforcing the primary semantic constraint. This matched variant changes only the ordering requirement, allowing the evaluation to distinguish cases where source coverage is naturally recovered by the secondary objective from cases where an explicit priority is necessary.
+
+% \subsection{Shared Stacker Learning}
+
+% After the selector freezes $\widehat S$, only the selected aligned outputs
+% enter the shared representation:
+% \begin{equation}
+% \phi_{\widehat S}(x)=
+% \operatorname{concat}_{i\in\widehat S}q_i(x)
+% \in\mathbb R^{|\widehat S|(C+1)}.
+% \label{eq:selected_representation}
+% \end{equation}
+
+% \bheading{Local score perturbation} Selected score blocks may reveal
+% record level information even though source records are not shared.
+% %
+% When local score protection is enabled, client $j$ independently perturbs
+% every coordinate of each selected block:
+% \begin{equation}
+% \widetilde q_i(x_t)=q_i(x_t)+\eta_{i,t},
+% \qquad
+% \eta_{i,t,k}\overset{\mathrm{iid}}{\sim}
+% \operatorname{Lap}\!\left(0,\frac{2}{\epsilon_b}\right).
+% \label{eq:local_laplace_release}
+% \end{equation}
+% The resulting perturbed representation is
+% \begin{equation}
+% \widetilde\phi_{\widehat S}(x)=
+% \operatorname{concat}_{i\in\widehat S}\widetilde q_i(x).
+% \label{eq:private_selected_representation}
+% \end{equation}
+
+% \bheading{Shared stacker fitting} The independent stacker fit partition
+% $\mathcal D^{\mathrm{stk}}$ supplies the labels and selected score features
+% used to train
+% \begin{equation}
+% \widehat f_{\widehat S}=\mathsf{Fit}_{\mathrm{global}}
+% \left(
+% \{(\widetilde\phi_{\widehat S}(x_t),y_t):
+% (x_t,y_t)\in\mathcal D^{\mathrm{stk}}\}
+% \right).
+% \label{eq:shared_stacker}
+% \end{equation}
+% For the nonprivate configuration, we set
+% $\widetilde\phi_{\widehat S}=\phi_{\widehat S}$.
+% %
+% Both configurations use only the columns indexed by $\widehat S$, so
+% unselected blocks cannot affect the learned classifier.
+
+% In a distributed realization, each client samples this noise privately before transmission. The centralized privacy-sensitivity experiment in Section~\ref{sec:experiments} reproduces the same post-selection noise distribution only to isolate its utility effect. During sealed test inference, \Fname preserves the selected layout and leaves every contributed detector unchanged.
+
+% \section{Theoretical Analysis}
+% \label{sec:method_analysis}
+
+% The analysis follows the decisions made by the system. We first characterize what client-side score randomization protects, then prove that calibration remains valid after adaptive selection, establish exact primary coverage under the hard budget, and give a local certificate for the secondary refinement. Finally, we quantify when calibration-time evidence remains informative after client-mixture shift at deployment.
+
+% \subsection{Local Privacy of Score Uploads}
+
+% Because the coordinator receives selected score blocks, the first question is
+% what the client side randomization protects.
+% %
+% We answer it under the execution boundary defined in
+% Section~\ref{sec:information_boundary}.
+
+% We fix the selected set before observing any stacker fit record and treat each
+% record label as public.
+% %
+% Accordingly, $(x,y)$ and $(x',y)$ are adjacent only when their feature vectors
+% differ.
+% %
+% Because Algorithm~\ref{alg:silostitch} uploads $y$ without perturbation, we use
+% this label fixed relation.
+% %
+% For a batched upload, adjacent batches have the same size, row alignment, and
+% label sequence, and they differ in exactly one feature vector.
+% %
+% Each client samples noise independently across records, selected detector
+% blocks, and output coordinates.
+
+% \begin{theorem}[Label conditional local score privacy]
+% \label{thm:local_score_privacy}
+% Suppose that the selected detectors and their semantic maps are fixed and
+% that $0<\epsilon_b<\infty$ and each client uses fresh private randomness in
+% Eq.~\ref{eq:local_laplace_release}.
+% %
+% Then one released detector block is
+% $(\epsilon_b,0)$-locally differentially private under the preceding
+% adjacency relation.
+% %
+% If $s=|\widehat S|$ blocks are released for the same
+% record, their joint release is $(s\epsilon_b,0)$-locally differentially
+% private.
+% %
+% Under one record replacement, releasing the entire client batch has
+% the same record level guarantee.
+% %
+% More generally, assigning parameter
+% $\epsilon_i$ to block $i$ gives
+% $(\sum_{i\in\widehat S}\epsilon_i,0)$-local differential privacy.
+% \end{theorem}
+
+% \begin{proof}
+% Because $q_i(x)$ and $q_i(x')$ are probability vectors,
+% $\lVert q_i(x)-q_i(x')\rVert_1\le2$.
+% %
+% Therefore, coordinatewise Laplace noise
+% with scale $2/\epsilon_b$ bounds the density ratio of one released block by
+% $e^{\epsilon_b}$.
+% %
+% Sequential composition over the $s$ selected blocks gives
+% $e^{s\epsilon_b}$.
+% %
+% Because different rows use independent randomization and
+% neighboring batches differ in one row, parallel composition across rows leaves
+% this bound unchanged.
+% %
+% Appending the unchanged public labels does not alter the
+% density ratio.
+% \end{proof}
+
+% Assigning $\epsilon_b=\epsilon/s$ to each block changes the noise scale to
+% $2s/\epsilon$ and yields a total per record score budget $\epsilon$.
+% %
+% For a fixed total budget, selecting fewer blocks also reduces the noise scale
+% required by this composition rule.
+% %
+% This guarantee is label conditional and covers the randomized score upload.
+% %
+% Privacy parameters compose across repeated upload rounds.
+
+% \subsection{Calibration under Heterogeneous Clients}
+
+% The privacy result concerns the stacker fit partition, whereas detector
+% eligibility depends on a separate calibration partition.
+% %
+% We next show that the calibration scores remain valid after the coordinator
+% uses it to select a detector set.
+
+% The records in $\mathcal D^{\rm cal}$ may represent different clients and
+% classes, so an identically distributed population model would obscure the
+% mixture being certified.
+% %
+% We condition on both the observed client--label design
+% $\mathcal I=\{(j_t,y_t)\}_{t=1}^{N}$ and the candidate pool $\mathcal Q$
+% pretrained before calibration.
+% %
+% We assume conditional independence given $(\mathcal Q,\mathcal I)$ while
+% allowing the conditional distribution to differ across records.
+% %
+% Define
+% \begin{equation}
+% \mu_i=\frac1N\sum_{t=1}^{N}\mathbb E[g_{i,t}\mid\mathcal Q,\mathcal I],
+% \qquad
+% R_i=1-\mu_i,
+% \label{eq:heterogeneous_overall_mean}
+% \end{equation}
+% and
+% \begin{equation}
+% \mu_{i,c}=\frac1{N_c}\sum_{t:y_t=c}
+% \mathbb E[g_{i,t}\mid\mathcal Q,\mathcal I].
+% \label{eq:heterogeneous_class_mean}
+% \end{equation}
+% These means describe the record weighted calibration mixture, not equal client
+% or worst client performance.
+
+% \begin{theorem}[Simultaneous calibration]
+% \label{thm:simultaneous_calibration}
+% Under the preceding assumptions, with probability at least $1-\delta$, the
+% following inequalities hold simultaneously for every candidate $i$ and
+% class $c$:
+% \begin{align}
+% R_i&\le R_i^+\le R_i+2r,
+% \label{eq:simultaneous_risk}\\
+% \max\{0,\mu_{i,c}-2r_c\}
+% &\le a_{i,c}\le\mu_{i,c}.
+% \label{eq:simultaneous_class}
+% \end{align}
+% Consequently, the inequalities remain valid for every candidate in any set
+% selected adaptively from the calibration statistics.
+% \end{theorem}
+
+% \begin{proof}
+% Conditioning on $(\mathcal Q,\mathcal I)$, Hoeffding's inequality gives
+% \[
+% \Pr\{|\widehat\mu_i-\mu_i|>r\mid\mathcal Q,\mathcal I\}
+% \le2e^{-2Nr^2}=\frac{\delta}{2M}.
+% \]
+% Therefore, a union bound over $M$ candidates spends at most $\delta/2$.
+% %
+% Likewise,
+% \[
+% \Pr\{|\widehat\mu_{i,c}-\mu_{i,c}|>r_c\mid\mathcal Q,\mathcal I\}
+% \le2e^{-2N_cr_c^2}=\frac{\delta}{2MC},
+% \]
+% so a second union bound over $MC$ pairs spends at most $\delta/2$.
+% %
+% The
+% intersection has probability at least $1-\delta$, and it does not require
+% different candidates evaluated on the same record to be independent.
+
+% On this event, $1-\widehat\mu_i+r$ lies between $R_i$ and $R_i+2r$.
+% %
+% Moreover, $\widehat\mu_{i,c}-r_c$ lies between $\mu_{i,c}-2r_c$ and
+% $\mu_{i,c}$.
+% %
+% Applying $[\cdot]_+$ proves the class inequalities.
+% %
+% Because
+% the event covers all $M+MC$ coordinates before selection, taking a
+% data dependent subset requires no additional union bound over $2^M$ sets.
+% \end{proof}
+
+% The simultaneous event also constrains how calibration screening can change
+% the best achievable primary coverage.
+% %
+% For any pool $\mathcal E$, let $W(\mathcal E)$ be the largest feasible
+% semantic coverage available from that pool, with value zero if no nonempty set
+% is feasible.
+% %
+% On the event in Theorem~\ref{thm:simultaneous_calibration}, define
+% \begin{equation}
+% \mathcal R^-=\{i:R_i\le\tau_L-2r\},
+% \qquad
+% \mathcal R^0=\{i:R_i\le\tau_L\}.
+% \end{equation}
+% Then,
+% \begin{equation}
+% \mathcal R^-\subseteq\widehat{\mathcal R}\subseteq\mathcal R^0,
+% \qquad
+% W(\mathcal R^-)\le W(\widehat{\mathcal R})\le W(\mathcal R^0).
+% \label{eq:coverage_sandwich}
+% \end{equation}
+% The left inclusion follows from $R_i^+\le R_i+2r$, whereas the right inclusion
+% follows from $R_i\le R_i^+$.
+% %
+% Hence, calibration preserves the conditional calibration mixture primary value
+% whenever a primary optimal witness over $\mathcal R^0$ lies entirely in
+% $\mathcal R^-$.
+
+% With $\tau_L=1$, the upper confidence gate is a finite sample admissibility
+% screen over normalized Brier risk.
+% %
+% We therefore refer to $\widehat{\mathcal R}$ as the calibration eligible pool.
+
+% \subsection{Exact Primary Coverage under a Hard Budget}
+
+% Once calibration fixes the eligible pool, the remaining primary challenge is
+% combinatorial: the budget may prevent simultaneous coverage of all classes.
+% %
+% We characterize this problem and the exact parameterized solver used by
+% \Fname.
+
+% \begin{theorem}[Primary hardness and exact parameterized solver]
+% \label{thm:primary_solver}
+% Computing $W^\star$ is NP hard, even when every candidate is eligible, every
+% cost is one, and all class weights are uniform.
+% %
+% Nevertheless, the bitmask
+% dynamic program returns a
+% nonempty feasible set $S_0$ with
+% \begin{equation}
+% C_{\mathrm{sem}}(S_0)=W^\star.
+% \end{equation}
+% It stores at most $2^C$ masks and examines at most
+% $|\widehat{\mathcal R}|2^C$ state transitions.
+% %
+% Thus, its primary stage is
+% fixed parameter tractable in $C$.
+% \end{theorem}
+
+% \begin{proof}
+% For hardness, take a Maximum Coverage instance with universe
+% $\{1,\ldots,C\}$, subsets $\Gamma_1,\ldots,\Gamma_M$, and cardinality
+% limit $k$.
+% %
+% Set $b_i=1$, $B=k$, and $w_c=1/C$.
+% %
+% Maximizing
+% $C_{\mathrm{sem}}$ then solves that instance up to the constant factor
+% $1/C$.
+
+% For exactness, after processing the first $t$ eligible candidates, associate
+% each reachable union mask $h$ with its least cost witness.
+% %
+% Omitting candidate
+% $t$ preserves an earlier state, whereas including it extends an earlier
+% mask to $h\vee\Gamma_t$.
+% %
+% Every subset makes exactly one of these choices.
+% %
+% Moreover, a lower cost witness for the same mask dominates every higher cost
+% witness under all future union operations.
+% %
+% Induction therefore shows that
+% the final table contains the least cost witness for every reachable mask.
+% %
+% Scanning the budget feasible masks returns exactly $W^\star$.
+
+% A $C$-bit mask has at most $2^C$ values, and each eligible candidate extends
+% each current mask at most once.
+% %
+% When all feasible masks have value zero,
+% the solver returns the least cost feasible singleton, which enforces
+% the nonempty stacker input without changing the primary value.
+% \end{proof}
+
+% The transition count excludes witness reconstruction and sorting overhead.
+% %
+% We restrict the evaluated solver to at most $10^6$ states, and the exactness
+% guarantee applies to every instance processed within this limit.
+
+% \subsection{Secondary Objective and Local Refinement}
+
+% Exact primary coverage restricts the comparison to feasible sets that attain
+% $W^\star$, but it does not make the secondary problem globally tractable.
+% %
+% We first explain why the two objectives cannot be replaced by one universal
+% weighted sum and then state the guarantee of the deployed local refinement.
+
+% Let $\mathcal V=\{C_{\mathrm{sem}}(S):S\in\mathcal F_B\}$ contain the
+% achievable primary values.
+% %
+% When $\mathcal V$ has at least two values, let $\Delta_{\mathrm{inst}}$ be its
+% smallest positive gap.
+% %
+% Because $0\le\Phi(S)\le1$, any coefficient
+% $K>1/\Delta_{\mathrm{inst}}$ makes every maximizer of
+% $KC_{\mathrm{sem}}+\Phi$ lexicographic for that fixed instance.
+% %
+% Normalized class weights can make the smallest positive coverage gap
+% arbitrarily small, so no universal finite coefficient is available.
+% %
+% The strict order in Eq.~\ref{eq:lexicographic_target} avoids this
+% instance-specific scale tuning.
+
+% \begin{proposition}[Secondary structure]
+% \label{prop:secondary_structure}
+% For fixed calibration statistics, $U$, $C_{\mathrm{pred}}$, and
+% $D_{\mathrm{rep}}$ are normalized, monotone, submodular set functions.
+% %
+% Consequently, their nonnegative weighted combination $\Phi$ has the same
+% properties.
+% \end{proposition}
+
+% \begin{proof}
+% For $U$ and $C_{\mathrm{pred}}$, each summand applies the nondecreasing
+% concave function $h_\tau$ to a nonnegative modular sum.
+% %
+% Therefore, the gain from adding the same candidate cannot increase as the
+% current set grows.
+% %
+% For
+% $D_{\mathrm{rep}}$, target $k$ contributes
+% $\max_{i\in S}\kappa_{i,k}$, whose marginal gain is
+% \[
+% \max\{0,\kappa_{a,k}-\max_{i\in S}\kappa_{i,k}\}.
+% \]
+% As $S$ grows, this gain also cannot increase.
+% %
+% Averaging and taking a
+% nonnegative weighted sum preserve all three properties.
+% \end{proof}
+
+% Submodularity provides useful structure for $\Phi$, but it does not yield a
+% global secondary approximation guarantee under the exact primary constraint.
+% %
+% The equal primary family
+% \begin{equation}
+% \mathcal F^\star=
+% \{S\in\mathcal F_B:C_{\mathrm{sem}}(S)=W^\star\}
+% \end{equation}
+% is not downward closed and need not satisfy an exchange axiom.
+% %
+% Standard monotone submodular knapsack guarantees, including $1-1/e$, therefore
+% do not apply to the secondary refinement stage.
+
+% For $S\in\mathcal F^\star$, let $\mathcal N_1(S)$ contain every set obtained
+% by removing exactly one selected candidate and adding exactly one unselected
+% candidate while preserving budget feasibility and $W^\star$.
+
+% \begin{theorem}[Coverage preservation and one swap certificate]
+% \label{thm:local_refinement}
+% Given an exact primary solution, the refinement procedure
+% terminates after finitely many accepted operations and returns
+% $\widehat S\in\mathcal F^\star$ such that
+% \begin{equation}
+% \Phi(S')\le\Phi(\widehat S)+\varepsilon_{\mathrm{loc}},
+% \qquad
+% \forall S'\in\mathcal N_1(\widehat S).
+% \label{eq:one_swap_certificate}
+% \end{equation}
+% \end{theorem}
+
+% \begin{proof}
+% The constrained seed has coverage $W^\star$.
+% %
+% Because
+% $C_{\mathrm{sem}}$ is monotone and $W^\star$ is already maximal, every
+% feasible fill keeps that value.
+% %
+% The algorithm checks every
+% accepted replacement for budget feasibility and equality to $W^\star$.
+% %
+% Each accepted operation also increases $\Phi$ by more than
+% $\varepsilon_{\mathrm{loc}}$.
+% %
+% Because the candidate pool has only finitely many subsets, the procedure
+% terminates.
+% %
+% At termination, the exhaustive
+% single swap search has found no feasible coverage neutral replacement
+% whose gain exceeds the tolerance, which proves
+% Eq.~\ref{eq:one_swap_certificate}.
+% \end{proof}
+
+% The certificate is deliberately local because the refinement procedure
+% explores only one swap neighbors.
+% %
+% During fill, the procedure ranks candidates by gain per byte and stops when
+% the chosen candidate's absolute gain does not exceed the tolerance.
+% %
+% The guarantee does not cover broader additions, multi candidate exchanges, or
+% the globally optimal secondary value.
+
+% \subsection{Effective Coverage under Client Mixture Shift}
+
+% Exact primary coverage preserves declared source support, but declared support
+% alone does not certify current competence.
+% %
+% We now connect these quantities for the pretrained returned set and quantify how
+% client mixture shift changes that connection.
+
+% The certificate reuses statistics already computed during calibration and
+% does not alter the selection objective.
+
+% Let $\vartheta_c\in[0,1]$ be a prespecified current competence threshold.
+% %
+% To test whether declared source support is backed by current scores, define
+% \begin{equation}
+% C_{\mathrm{cert}}(S;\boldsymbol\vartheta)=
+% \sum_{c=1}^{C}w_c
+% \mathbf 1\{\exists i\in S:
+% \Gamma_{i,c}=1\ \wedge\ a_{i,c}\ge\vartheta_c\}.
+% \label{eq:certified_coverage}
+% \end{equation}
+% Under this rule, a class contributes only when a selected detector provides
+% both declared source support and a conservative current utility score.
+% %
+% For comparison, let $C_\mu^a(S;\boldsymbol\vartheta)$ replace
+% $a_{i,c}\ge\vartheta_c$ by $\mu_{i,c}^a\ge\vartheta_c$, where
+% $a\in\{\mathrm{cal},\mathrm{dep}\}$.
+
+% Let $h=(j,c)$ index a client--class cell.
+% %
+% Suppose that detector behavior within each cell remains stable between
+% calibration and deployment while only the mixture weights change.
+% %
+% Let $R_{i,h}\in[0,1]$ denote the cell risk, and let
+% $\pi_h^{\mathrm{cal}}$ and $\pi_h^{\mathrm{dep}}$ denote the two mixtures.
+% %
+% For $a\in\{\mathrm{cal},\mathrm{dep}\}$, define
+% \begin{equation}
+% R_i^a=\sum_{j,c}\pi_{j,c}^a R_{i,j,c},
+% \qquad
+% \mu_{i,c}^a=\sum_j\pi_{j\mid c}^a(1-R_{i,j,c}),
+% \label{eq:mixture_quantities}
+% \end{equation}
+% and let $\operatorname{TV}(p,q)=\tfrac12\lVert p-q\rVert_1$.
+% %
+% Under the calibration design, the means in
+% Eqs.~\ref{eq:heterogeneous_overall_mean}--\ref{eq:heterogeneous_class_mean}
+% equal $1-R_i^{\mathrm{cal}}$ and $\mu_{i,c}^{\mathrm{cal}}$, respectively.
+
+% \begin{theorem}[Effective coverage under mixture shift]
+% \label{thm:post_selection_certificates}
+% Suppose that the within class client mixtures differ by at most $\eta_c$.
+% %
+% On the simultaneous calibration event, every adaptively selected set
+% $\widehat S$ satisfies
+% \begin{equation}
+% \begin{aligned}
+% C_\mu^{\mathrm{cal}}(\widehat S;
+% \boldsymbol\vartheta+\boldsymbol\eta+2\boldsymbol r)
+% &\le C_{\mathrm{cert}}(\widehat S;
+% \boldsymbol\vartheta+\boldsymbol\eta)
+% \\
+% &\le C_\mu^{\mathrm{dep}}(\widehat S;\boldsymbol\vartheta)
+% \le C_{\mathrm{sem}}(\widehat S).
+% \end{aligned}
+% \label{eq:certified_coverage_sandwich}
+% \end{equation}
+% where $(\boldsymbol r)_c=r_c$ and
+% $(\boldsymbol\eta)_c=\eta_c$.
+
+% Moreover, if
+% $\operatorname{TV}(\pi^{\mathrm{dep}},\pi^{\mathrm{cal}})\le\eta$, then
+% \begin{equation}
+% R_i^{\mathrm{dep}}\le R_i^{\mathrm{cal}}+\eta.
+% \label{eq:risk_mixture_shift}
+% \end{equation}
+% \end{theorem}
+
+% \begin{proof}
+% Theorem~\ref{thm:simultaneous_calibration} and the mixture assumption give
+% \[
+% \mu_{i,c}^{\mathrm{cal}}\ge\vartheta_c+\eta_c+2r_c
+% \Longrightarrow a_{i,c}\ge\vartheta_c+\eta_c
+% \Longrightarrow\mu_{i,c}^{\mathrm{dep}}\ge\vartheta_c.
+% \]
+% Intersecting these implications with the fixed support edge
+% $\Gamma_{i,c}=1$, taking the existential quantifier over selected
+% candidates, and summing class weights proves
+% Eq.~\ref{eq:certified_coverage_sandwich}.
+
+% For the final claim, total variation bounds the change in the expectation of
+% any $[0,1]$-valued function.
+% %
+% Applying this bound to the cell risks yields
+% Eq.~\ref{eq:risk_mixture_shift}.
+% \end{proof}
+
+% By requiring both declared source side support and current class conditional
+% Brier utility, $C_{\mathrm{cert}}$ connects the two under client mixture shift.
+% %
+% During selection, \Fname optimizes $C_{\mathrm{sem}}$ and locally refines
+% $\Phi$ while preserving the exact primary value.
+% %
+% Only after selection do $C_{\mathrm{cert}}$ and the mixture sensitivity bound
+% analyze the pretrained returned set.
+
+% % All quantitative figures in this section are Matplotlib PDFs generated from
+% % the validated paper tables. Their embedded fonts are TrueType, not Type 3.
+
+% \section{Evaluation}
+% \label{sec:experiments}
+
+% We evaluate whether \Fname makes selective reuse worthwhile in the deployment setting defined above: it should reduce integration cost, preserve source-side attack-class coverage, retain current detection quality, protect optional score releases, and remain computationally practical.
+% %
+% We organize the evaluation around five questions:
+% \begin{packeditemize}
+%     \item \textbf{RQ1: Detection quality under a budget.}
+%     %
+%     How much predictive
+%     quality and source support does the shared detector retain under a hard
+%     selection cost budget?
+%     %
+%     \item \textbf{RQ2: Client label heterogeneity.}
+%     %
+%     How do different client
+%     label distributions affect partition feasibility, class support, and
+%     detection quality?
+%     %
+%     \item \textbf{RQ3: Selection signals and learners.}
+%     %
+%     Which selection
+%     signals, semantic settings, and learning backends materially change the
+%     result?
+%     %
+%     \item \textbf{RQ4: Score randomization.}
+%     %
+%     What detection and attack leakage
+%     costs accompany stronger Laplace score randomization?
+%     %
+%     \item \textbf{RQ5: Scalability and runtime.}
+%     %
+%     Does exact selection remain
+%     correct and practical as the candidate pool and class vocabulary grow,
+%     and what logical communication saving does it deliver at the evaluated
+%     deployment scale?
+% \end{packeditemize}
+
+% \subsection{Experimental Setup}
+
+% \bheading{Datasets} We use four multiclass cybersecurity datasets:
+% CIC DDoS2019 (DDoS)~\cite{cicddos19}, CICMalDroid2020
+% (MalDroid)~\cite{maldroid}, CIC Darknet2020
+% (Darknet)~\cite{darknet}, and CIRA CIC DoHBrw 2020
+% (DoH)~\cite{DoH}.
+% %
+% We use 66 clients in each task and let every client contribute one candidate
+% detector.
+% %
+% To keep all 66 candidates trainable, we give each client between 74 and 30,517
+% records for local detector fitting and at least two classes.
+% %
+% Holding the federation size constant prevents cross dataset differences from
+% being attributed merely to a larger or smaller candidate pool.
+% %
+% The central 50\% operating point limits the selected set to approximately half
+% of the full pool selection cost.
+% %
+% If all candidate costs were equal, this budget would correspond to roughly 33
+% of the 66 detectors, but the actual set size follows the logical byte costs.
+% %
+% In RQ5, we vary the candidate pool $M$ from 16 to 256 independently to test
+% how selection scales.
+% %
+% Table~\ref{tab:eval-datasets} summarizes the evaluation scale.
+% %
+% Among the 13 observed classes in the reserved DDoS test set, one attack class
+% is absent from client training.
+% %
+% This class contributes to macro F1 but not to minimum evaluated class recall.
+
+% \begin{table*}[t]
+% \centering
+% \caption{Scale of the four evaluation tasks. Each task uses 66 contributors and one candidate detector per contributor. Evaluated classes count labels in the sealed test set; DDoS includes one test class absent from source training.}
+% \label{tab:eval-datasets}
+% \small
+% \begin{tabular}{lrrrr}
+% \toprule
+% Dataset & Training samples & Test samples & Features & Evaluated classes \\
+% \midrule
+% DDoS & 3,355,966 & 1,127,526 & 79 & 13 \\
+% MalDroid & 8,118 & 3,480 & 470 & 5 \\
+% Darknet & 99,066 & 42,459 & 76 & 11 \\
+% DoH & 1,005,708 & 431,034 & 29 & 4 \\
+% \bottomrule
+% \end{tabular}
+% \end{table*}
+
+% \bheading{Protocol} We divide each training pool into disjoint 60\%, 10\%,
+% and 30\% partitions for local detector training, selection validation, and
+% shared stacker training.
+% %
+% After this split, the coordinator holds the 10\% selection validation
+% partition.
+% %
+% We keep the test set sealed until both selection and stacker fitting have
+% finished.
+% %
+% Unless stated otherwise, we use five repeated splits,
+% LightGBM~\cite{lightgbm} for local detectors and the shared stacker, a 50\%
+% selection cost budget, minimum source support $n_{\min}=2$, class weights that
+% are inversely proportional to the square root of class frequency, and equal
+% weights for the three secondary selection signals.
+
+% \bheading{Baselines and reference point} We compare \Fname with two baselines
+% under the same selection cost budget.
+% %
+% For the random baseline, we generate a random candidate order from each of 20
+% fixed selection seeds within a data split.
+% %
+% The coordinator scans each order once and adds a detector whenever it fits the
+% remaining budget, after which we average the 20 selections within the split.
+% %
+% Under the individual utility baseline, the coordinator ranks detectors by mean
+% calibrated Brier utility per selection cost byte and greedily packs the fixed
+% order.
+% %
+% Random selection tests whether an arbitrary budget feasible subset is
+% sufficient, whereas individual utility ranking tests whether prioritizing
+% current average behavior sacrifices source side class support.
+% %
+% We use the full pool of 66 detectors as the unconstrained reference and the
+% 100\% selection cost reference point.
+% %
+% By contrast, \Fname first maximizes weighted source class support and then
+% refines current predictive quality without reducing that support.
+% %
+% We later remove only the source support priority while retaining the same
+% secondary search.
+
+% \bheading{Metrics and statistics} We choose macro F1 as the main detection
+% score because it gives every class equal weight.
+% %
+% In imbalanced security traffic, this prevents a frequent class from hiding
+% weak detection of a rarer attack class.
+% %
+% We also report accuracy for overall correctness, balanced accuracy for average
+% class recall, and minimum evaluated class recall.
+% %
+% Among labels that appear in the sealed test set and belong to the fixed
+% training class set, the last metric takes the lowest recall.
+% %
+% We measure weighted class coverage separately because it describes retained
+% training support rather than classifier quality.
+% %
+% For the DDoS privacy experiment, we report \emph{attack leakage}, which is the
+% fraction of predictions labeled benign that are actually attacks.
+% %
+% We define the selection cost in Eq.~\ref{eq:candidate_cost} and the budget in
+% Eq.~\ref{eq:logical_budget}.
+% %
+% For system results, we add the initial candidate upload and stacker label
+% upload according to Eq.~\ref{eq:total_logical_communication}.
+% %
+% We report means and 95\% Student \(t\) confidence intervals over five repeated
+% splits unless stated otherwise.
+% %
+% When two conditions share a split, we pair their observations.
+% %
+% We apply Holm correction within each comparison family that we fixed before
+% analysis.
+% %
+% We recompute every detection score from the reserved test confusion matrix.
+
+% \bheading{Experimental environment} We run a centralized simulation on one
+% machine under Linux and Python~3.9.25.
+% %
+% In this simulation, we use NumPy~1.26.4, scikit-learn~1.3.2,
+% LightGBM~4.6.0, and XGBoost~\cite{xgboost}~1.4.2.
+% %
+% We record wall clock time and the logical bytes exchanged by the evaluated
+% protocol.
+
+% \subsection{RQ1: Detection Quality under a Budget}
+% RQ1 tests the central deployment claim: whether a hard subset budget can reduce integration cost without discarding source attack-class coverage or materially degrading the shared detector. We compare \Fname with random and individual-utility selection under the same budget and with the unconstrained 66-detector pool.
+
+% \begin{table*}[t]
+% \centering
+% \caption{Macro F1 at the 50\% selection-cost budget. Random selection and individual-utility ranking receive the same budget; the full detector pool is an unconstrained reference. Entries report means and 95\% Student $t$ confidence intervals over five repeated splits.}
+% \label{tab:eval-main}
+% \small
+% \setlength{\tabcolsep}{4.5pt}
+% \begin{tabular}{@{}lrrrr@{}}
+% \toprule
+% Method & DDoS & MalDroid & Darknet & DoH \\
+% \midrule
+% Full detector pool & $0.6412\pm0.0121$ & $0.8449\pm0.0123$ & $0.5972\pm0.0128$ & $0.6073\pm0.0042$ \\
+% Random selection & $0.6079\pm0.0287$ & $0.8344\pm0.0100$ & $0.5931\pm0.0071$ & $0.6074\pm0.0028$ \\
+% Individual utility ranking & $0.6303\pm0.0437$ & $0.8374\pm0.0132$ & $0.5921\pm0.0168$ & $0.6069\pm0.0042$ \\
+% \textbf{\Fname} & $0.6153\pm0.0453$ & $0.8397\pm0.0121$ & $0.5953\pm0.0148$ & $0.6064\pm0.0038$ \\
+% \bottomrule
+% \end{tabular}
+% \end{table*}
+
+% \begin{figure*}[t]
+%     \centering
+%     \includegraphics[width=0.98\textwidth]{figures/eval_budget_utility.pdf}
+%     \caption{Macro F1 as a function of the selection cost budget.
+%     %
+%     Curves compare
+%     \Fname with two budget matched selection rules at 25\%, 50\%, and 75\%,
+%     and the star is the unconstrained pool of 66 detectors.
+%     %
+%     Error bars are 95\%
+%     confidence intervals over five repeated splits, after averaging the 20
+%     random selections within each split.
+%     %
+%     Each dataset uses its own vertical
+%     scale.}
+%     \label{fig:eval-budget-utility}
+% \end{figure*}
+
+% \bheading{Detection quality and source coverage} At the 50\% selection-cost operating point, \Fname uses 49.5\%--50.0\% of the full-pool selection cost. Its macro-F1 gap from the full pool is at most 0.0052 on MalDroid, Darknet, and DoH and 0.0258 on DDoS; across all four tasks the loss therefore remains below 0.028. Accuracy and minimum evaluated class recall likewise remain close to the full-pool values on MalDroid, Darknet, and DoH. On DDoS, the accuracy gap is 0.0296 but the minimum-recall gap is only 0.0094. Darknet's very low minimum recall is present in both the selected and full-pool configurations, showing that this weakness is not introduced by selection. Most importantly, \Fname attains the maximum weighted source coverage available under the 50\% budget on every dataset.
+
+% \bheading{Why coverage priority matters} Random selection has lower mean macro F1 than \Fname on DDoS, MalDroid, and Darknet and is essentially tied on DoH. Individual-utility ranking is competitive in predictive quality, but DDoS exposes the conflict that motivates the ordered objective: it gains 0.0150 macro F1 over \Fname while retaining only 0.910 of the available weighted source coverage, whereas \Fname retains 1.0. Thus, \Fname does not claim universal score dominance; it prevents average current utility from trading away declared attack-class coverage and then optimizes quality within that constraint.
+
+% The budget sweep in Fig.~\ref{fig:eval-budget-utility} further shows that more budget does not monotonically increase test macro F1 on every task: MalDroid benefits most clearly, DoH changes little, and DDoS and Darknet are non-monotonic. This reinforces the need to distinguish guaranteed source coverage from empirical target-domain quality rather than treating detector count or budget alone as a quality proxy.
+
+% \subsection{RQ2: Client Label Heterogeneity}
+% RQ2 asks how source-silo label heterogeneity affects the candidate pool that \Fname later integrates. We keep the original DDoS and Darknet assignments and also generate controlled Dirichlet partitions with $\alpha\in\{10,1,0.5,0.1\}$, where smaller $\alpha$ denotes stronger label imbalance. Each accepted client partition must contain at least two local training classes so that every contributed detector remains multiclass.
+
+% \begin{figure*}[t]
+%     \centering
+%     \includegraphics[width=0.98\textwidth]{figures/eval_heterogeneity.pdf}
+%     \caption{Effect of client label heterogeneity on partition feasibility and
+%     macro F1 at the 50\% selection cost budget, where smaller Dirichlet $\alpha$
+%     denotes stronger imbalance.
+%     %
+%     (a) counts valid partitions among ten fixed
+%     seeds. (b) reports Jensen--Shannon divergence. (c) and (d)
+%     report macro F1.
+%     %
+%     Error bars are 95\% confidence intervals over valid seeds,
+%     with $n=10$ except for MalDroid at $\alpha=1$, where $n=5$.
+%     %
+%     The reason of missing
+%     MalDroid points in (b) is that no seed satisfies the two class per client
+%     requirement.}
+%     \label{fig:eval-heterogeneity}
+% \end{figure*}
+
+% \bheading{Feasibility before integration} Darknet remains feasible for all ten seeds across the evaluated range even as Jensen--Shannon divergence rises from 0.0008 under the balanced allocation to 0.3516 at $\alpha=0.1$. MalDroid, which has only five training classes spread across 66 contributors, becomes constrained earlier: all balanced and $\alpha=10$ seeds are feasible, five seeds remain at $\alpha=1$, and none of the fixed seeds satisfies the two-class requirement at $\alpha\in\{0.5,0.1\}$. Extreme source heterogeneity can therefore limit which pretrained detector pools can exist before selective integration begins.
+
+% \bheading{Quality after a feasible pool exists} Conditional on feasibility, stronger heterogeneity does not cause a monotonic macro-F1 decline. Darknet remains between 0.5895 and 0.5976 and MalDroid between 0.8328 and 0.8375 at the 50\% budget. Under the original client layouts, increasing the budget from 25\% to 75\% changes minimum class recall more visibly than macro F1, particularly on Darknet and DDoS, showing that additional source capacity can matter more to weak classes than to the aggregate score.
+
+% \bheading{When the hard coverage priority is active} Removing only the source-support priority while retaining the same secondary search yields the same selected set in the 30 original-layout and 225 controlled-layout comparisons. In these pools the secondary refinement already reaches the maximum available support, so the hard constraint is non-binding. This does not make the priority redundant: RQ1 provides the complementary case in which utility-oriented selection sacrifices DDoS coverage. Together, the experiments show that the ordered objective behaves as a guardrail---inactive when current-behavior refinement naturally preserves coverage, but binding when the two objectives conflict.
+
+% \subsection{RQ3: Selection Signals and Learners}
+% RQ3 separates the mechanism that enforces the primary coverage objective from secondary design choices used only after that value is fixed.
+
+% \bheading{Secondary selection signals} \Fname combines record-level Brier utility, conservative classwise utility, and behavioral representativeness. Removing one signal at a time never changes the maximum attained source coverage. The predictive effects are task dependent: for example, removing record-level utility lowers DDoS macro F1 by 0.0190, whereas removing representativeness raises it by 0.0181. Across datasets and budgets, the direction varies and no removal remains significant after Holm correction. The evidence therefore supports these terms as tie-breaking signals among coverage-equivalent sets rather than independent universal sources of accuracy gain.
+
+% \bheading{Semantic settings and learner backends} Varying $n_{\min}\in\{1,2,5,10\}$ and replacing inverse-square-root source-class weights with uniform weights leaves the selected set and measured quality unchanged in the tested Darknet layouts. Learner choice creates larger descriptive differences, summarized in Table~\ref{tab:eval-architecture}.
+
+% \begin{table}[t]
+% \centering
+% \caption{Macro F1 at the 50\% selection-cost budget for each local-to-shared learner pair. Entries are means over five splits; bold marks the largest descriptive mean for each dataset.}
+% \label{tab:eval-architecture}
+% \footnotesize
+% \setlength{\tabcolsep}{2.8pt}
+% \begin{tabular}{@{}lrrrr@{}}
+% \toprule
+% Dataset & \makecell{XGB\\$\to$XGB} & \makecell{LGBM\\$\to$XGB} & \makecell{XGB\\$\to$LGBM} & \makecell{LGBM\\$\to$LGBM} \\
+% \midrule
+% DDoS & 0.617 & \textbf{0.635} & 0.633 & 0.615 \\
+% MalDroid & 0.806 & 0.833 & 0.827 & \textbf{0.840} \\
+% Darknet & 0.578 & 0.585 & 0.592 & \textbf{0.595} \\
+% DoH & 0.592 & 0.591 & \textbf{0.607} & 0.606 \\
+% \bottomrule
+% \end{tabular}
+% \end{table}
+
+% LightGBM local detectors with XGBoost stacking give the largest DDoS mean, LightGBM at both levels leads on MalDroid and Darknet, and XGBoost locals with a LightGBM stacker lead narrowly on DoH. After Holm correction, only the two matched DoH comparisons between shared learners remain significant, both favoring LightGBM as the stacker. These results make backend choice a deployment tuning dimension, while the defining property of \Fname remains the ordered subset constraint rather than a particular learner family.
+
+% \subsection{RQ4: Score Randomization}
+% RQ4 quantifies the operational cost of the optional score-release protection proved in Theorem~\ref{thm:local_score_privacy}. After freezing the selected set, we apply independent Laplace noise to every selected score block used for stacker fitting; smaller per-block $\epsilon_b$ means stronger perturbation. The centralized experiment samples the same distribution that clients would sample locally, so the curves isolate privacy-induced utility changes rather than network effects.
+
+% \begin{figure}[t]
+%     \centering
+%     \includegraphics[width=0.98\columnwidth]{figures/eval_privacy_utility.pdf}
+%     \caption{Effect of Laplace score randomization on DDoS.
+%     %
+%     Panel (a) reports
+%     macro F1, and panel (b) reports the fraction of predictions labeled benign
+%     that are attacks.
+%     %
+%     From left to right, per block $\epsilon$ decreases and
+%     noise strength increases.
+%     %
+%     Curves compare \Fname at the 50\% selection cost budget
+%     with the full pool, and error bars are 95\% confidence intervals over the same
+%     five splits.
+%     %
+%     The displayed $\epsilon$ is per released block, before
+%     composition.}
+%     \label{fig:eval-privacy-utility}
+% \end{figure}
+
+% \bheading{Aggregate quality} Without perturbation, the selected 50\% set and the full pool obtain macro F1 of 0.6153 and 0.6412 on DDoS. At the strongest evaluated setting, $\epsilon_b=1$, they fall to 0.5105 and 0.5298, corresponding to absolute losses of 0.1048 and 0.1114. The selected subset therefore does not exhibit a larger absolute degradation than the full pool under the strongest noise.
+
+% \bheading{Security-critical leakage} Macro F1 alone understates the operational effect. For the selected set, attack leakage---the fraction of predictions labeled benign that are actually attacks---rises from 0.055 without noise to 0.262 at $\epsilon_b=5$ and 0.583 at $\epsilon_b=1$; the full pool rises from 0.056 to 0.193 and 0.644. Thus, strong formal score protection can make more than half of benign predictions incorrect in the security-critical direction even when aggregate quality appears less dramatic. Privacy parameters should therefore be chosen using both aggregate detection quality and attack leakage.
+
+% \subsection{RQ5: Scalability and Runtime}
+% RQ5 checks whether the exact primary guarantee is implemented correctly and whether the resulting selector remains practical as the candidate pool and attack vocabulary grow.
+
+% \bheading{Exactness audit} At $C=8$ and $M\in\{8,10,12,16\}$, we compare the dynamic program with exhaustive search over ten repetitions per size. The solver matches the exhaustive optimum in all 40 comparisons. Across these enumerable instances, median runtime ranges from 37.70 to 118.72 ms and every 95th percentile remains below 125 ms. This audit validates the implementation against an independently computed optimum; the larger sweeps below characterize scale.
+
+% \begin{figure*}[t]
+%     \centering
+%     \includegraphics[width=0.96\textwidth]{figures/eval_solver_scaling.pdf}
+%     \caption{Exact selection time in two independently sampled sweeps.
+%     %
+%     Panel
+%     (a) fixes 12 attack classes and varies the candidate pool, while panel (b)
+%     fixes 66 candidates and varies the attack class count.
+%     %
+%     The vertical axis
+%     is logarithmic, and points are medians and upper bars are 95th percentiles over
+%     ten repetitions.}
+%     \label{fig:eval-solver-scaling}
+% \end{figure*}
+
+% \bheading{Scaling behavior} With 12 attack classes, increasing the candidate pool from 66 to 256 raises median selection time from 1.99 to 33.73 s. With 66 candidates, increasing the vocabulary from 12 to 20 classes raises the median from 2.95 to 100.10 s. The class dimension is therefore the dominant observed scaling pressure near the upper end of the experiment, consistent with the $O(|\widehat{\mathcal R}|2^C)$ state-transition bound.
+
+% \begin{table}[t]
+% \centering
+% \caption{System outcome at the 50\% selection-cost budget.}
+% \label{tab:eval-system-cost}
+% \footnotesize
+% \setlength{\tabcolsep}{3.0pt}
+% \begin{tabular}{@{}lrrr@{}}
+% \toprule
+% Dataset & \makecell{Full$\to$selected\\(MiB)} & Saved & $\Delta$F1 \\
+% \midrule
+% DDoS & 7040.05$\to$3489.07 & 50.4\% & 0.0258 \\
+% MalDroid & 662.66$\to$335.94 & 49.3\% & 0.0052 \\
+% Darknet & 3436.78$\to$1732.29 & 49.6\% & 0.0019 \\
+% DoH & 2942.76$\to$1488.51 & 49.4\% & 0.0009 \\
+% \bottomrule
+% \end{tabular}
+% \end{table}
+
+% \bheading{End-to-end deployment cost} Table~\ref{tab:eval-system-cost} places selector runtime beside the communication-quality result from RQ1. Across the four tasks, the 50\% operating point saves 49.3\%--50.4\% of total logical communication and loses at most 0.0258 macro F1. Runtime composition depends on the task: stacker fitting dominates MalDroid and Darknet, while selection has the largest single share on DDoS. Thus the exact selector is not universally the end-to-end bottleneck; at the evaluated 66-candidate scale, individual selection calls finish in seconds, while the main scalability limit is the exponential dependence on the number of attack classes.
+
+% \section{Discussion and Conclusion}
+% \label{sec:discussion_conclusion}
+% In summary, \Fname enables selective reuse of pretrained intrusion detectors after raw historical source records are no longer accessible. Under a hard deployment budget, it first preserves maximum weighted source class coverage and then refines current predictive behavior before fitting a shared stacker. Across four tasks, a 50\% selection-cost budget reduces logical communication by 49.3\%--50.4\%, with the macro-F1 loss bounded by 0.028.
+
+% \noindent\textbf{Coverage Priority and Validity.}
+% The ordered objective is appropriate when source class preservation is a deployment requirement rather than a quantity that may be traded freely for average quality. RQ1 shows a case where utility-only selection sacrifices DDoS coverage, whereas the heterogeneity ablation shows cases where the constraint is naturally non-binding. Source coverage is nevertheless not a certificate of current accuracy: calibration and sealed testing remain necessary after distribution shift. The primary dynamic program is exact, while secondary refinement has only the stated one-swap certificate. The deployment-side mixture-shift certificate further assumes stable client--class conditional behavior and bounded mixture change; larger shifts require renewed validation.
+
+% \noindent\textbf{Deployment and Privacy Limits.}
+% Reported savings are logical bytes rather than measured latency, and exact selection scales exponentially with the attack-class count $C$. Optional protection applies fresh client-side noise and gives label-conditional LDP only to uploaded scores, not labels or detector parameters. At strong perturbation, attack leakage exceeds 0.5, so privacy must be balanced against security utility. Missing source records do not make the retained models private.
+
+% % use section* for acknowledgment
+% % \section*{Acknowledgment}
+
+% % Omitted for anonymous review.
+
+% % Can use something like this to put references on a page
+% % by themselves when using endfloat and the captionsoff option.
+% \ifCLASSOPTIONcaptionsoff
+%   \newpage
+% \fi
+
+
+
+% \bibliographystyle{IEEEtran}
+% \bibliography{ref} 
+
+
+
+% % % if you will not have a photo at all:
+% % \begin{IEEEbiographynophoto}{John Doe}
+% % Biography text here.
+% % \end{IEEEbiographynophoto}
+
+% % % insert where needed to balance the two columns on the last page with
+% % % biographies
+% % %\newpage
+
+% % \begin{IEEEbiographynophoto}{Jane Doe}
+% % Biography text here.
+% % \end{IEEEbiographynophoto}
+
+
+% \end{document}
