@@ -78,13 +78,14 @@
 \maketitle
 
 \begin{abstract}
-Effective intrusion detection benefits from diverse attack data, yet historical source records may no longer be accessible due to privacy and retention constraints, preventing further collaborative training. 
-In this paper, we study selective integration of authorized pretrained detectors, aiming to choose a fixed detector set under a hard deployment budget while preserving diverse source attack-class knowledge and maintaining predictive quality on current deployment data.
-We present \Fname, which treats source coverage and current predictive behavior as ordered objectives rather than combining them into a single score.
-\Fname aligns heterogeneous detector outputs, uses held-out deployment records to assess current behavior, exactly maximizes weighted source class coverage under a logical byte budget via dynamic programming, and then refines the selected set to improve current prediction without reducing coverage.
-A shared stacker integrates the selected outputs, with optional Laplace perturbation for score uploads.
-Theoretically, we establish that calibration remains valid after adaptive selection and that the primary coverage problem is solved exactly, while perturbed scores satisfy label-conditional local differential privacy.
-Across four cybersecurity datasets with 60+ candidate detectors per task, \Fname reduces communication by approximately half under a 50\% selection-cost budget while preserving maximum weighted source coverage and achieving detection performance comparable to the full detector pool.
+Effective intrusion detection benefits from diverse attack data, yet raw historical source records may no longer be accessible due to privacy and retention constraints, preventing further collaborative training.
+In this paper, we study selective integration of authorized pretrained detectors when the raw source records are unavailable but pretrained detectors and coarse source class counts remain available for reuse.
+Under a hard deployment budget, the goal is to choose a fixed detector set that preserves diverse source attack-class coverage while maintaining predictive quality on current deployment data.
+We present \Fname, which gives weighted source class coverage strict priority over current predictive behavior rather than combining them into a single score.
+\Fname aligns heterogeneous detector outputs, uses held-out deployment records to assess current behavior, exactly maximizes weighted source class coverage under a logical byte budget via dynamic programming, and then refines the selected set without reducing coverage before fitting a shared stacker.
+To prevent from potential privacy leakage, we also protect uploaded score blocks via local differential privacy.
+Theoretically, we prove that calibration remains valid after adaptive selection and that the primary coverage problem is solved exactly, while perturbed scores satisfy label-conditional local differential privacy.
+Across four intrusion detection datasets with more than 60 candidate detectors per task, \Fname reduces communication by approximately half under a 50\% selection-cost budget while preserving maximum weighted source coverage and near-full-pool detection quality.
 \end{abstract}
 
 
@@ -96,46 +97,43 @@ Across four cybersecurity datasets with 60+ candidate detectors per task, \Fname
 Effective intrusion detection relies on training data that capture diverse traffic conditions and attack behaviors.
 However, data collected by a single organization typically reflect only its own operational environment, limiting the diversity of attack patterns available for training.
 Collaborative learning, particularly Federated Learning (FL), can mitigate such data silos by learning from distributed records without pooling them centrally~\cite{federated_learning,Fedprox,ditto2021,zhao2023fedprompt}.
-Yet these approaches still require contributors to retain their local training records and participate in additional model optimization.
-In practice, historical network logs may become inaccessible because they contain sensitive information, such as internal network topologies and user identities~\cite{nist2016threatsharing,xu2026entente}, and may need to be deleted under privacy and retention requirements such as the GDPR~\cite{gdpr2018general}.
-When these training records are no longer available but pretrained detectors remain authorized for reuse, integrating existing detectors provides an alternative way to exploit complementary source knowledge without revisiting the original data.
+Yet these approaches still require contributors to retain local training records and participate in additional model optimization.
+In practice, raw historical network logs may become inaccessible because they contain sensitive information, such as internal network topologies and user identities~\cite{nist2016threatsharing,xu2026entente}, and may need to be deleted under privacy and retention requirements such as the GDPR~\cite{gdpr2018general}.
+When these raw records are unavailable but authorized pretrained detectors and coarse source class counts remain, reusing the detectors offers a way to exploit complementary source knowledge without revisiting the original data.
 
-Pretrained-model reuse is therefore particularly suitable for this setting~\cite{old_dogs2019,wei2024tgr}.
-However, existing approaches either select or aggregate pretrained models without explicitly accounting for heterogeneous deployment costs~\cite{dong2022zood,zhao2024modelglue}, or perform cost-aware dynamic detector selection rather than choosing a single fixed detector set for deployment~\cite{birman2022spirel}.
-This gap motivates our research question: \emph{How can a coordinator selectively integrate a fixed set of pretrained intrusion detectors under a deployment budget while preserving diverse source attack-class coverage and maintaining detection performance on the current deployment data?}
+Pretrained-model reuse can therefore operate after source records are no longer available~\cite{old_dogs2019,wei2024tgr}.
+However, existing approaches either select or aggregate pretrained models without explicitly accounting for heterogeneous deployment costs~\cite{dong2022zood,zhao2024modelglue}, or perform cost-aware detector selection rather than choosing one fixed detector set for deployment~\cite{birman2022spirel}.
+This gap motivates our research question: \emph{How can a coordinator selectively integrate a fixed set of pretrained intrusion detectors under a deployment budget while preserving source attack-class coverage and maintaining detection performance on the current deployment domain?}
 
 Answering this question presents three challenges.
-First, detectors contributed by different parties may have different label spaces and support different attack classes, making their outputs difficult to compare and integrate directly.
-Second, during integration, preserving source attack knowledge and maintaining current detection performance are not always aligned.
-A detector that performs well on current deployment data may contribute little new class knowledge, whereas a detector with unique class coverage may no longer perform well after distribution shifts.
-Therefore, the coordinator must preserve unique source coverage without filling the limited budget with detectors that are currently weak or redundant.
+First, detectors contributed by different parties may use different label spaces and support different attack classes, making their outputs difficult to compare and integrate directly.
+Second, source class coverage and current detection performance may favor different detectors: a detector with unique class coverage may no longer perform well after distribution shifts, whereas a detector that performs well on current deployment data may add little new coverage.
+The coordinator should therefore preserve unique source coverage without filling the limited budget with detectors that are currently weak or redundant.
 Third, detector selection must satisfy the deployment budget while remaining statistically reliable and privacy-aware.
 Because calibration data are used to choose detectors, their performance estimates must remain valid after selection, while uploaded prediction scores may still reveal sensitive information.
 
-
 To address these challenges, we present \Fname, a framework for selective integration of frozen intrusion detectors under deployment budgets.
-The key idea is to prioritize source class coverage over current predictive performance: \Fname first maximizes weighted source class coverage under the deployment budget, and then improves current predictive behavior without reducing that coverage.
-This priority separates historical class coverage from current predictive quality: source class counts indicate which attack classes were represented during training, whereas held-out deployment records indicate how well the pretrained detectors perform after distribution shifts~\cite{yang2021cade}.
-To realize this design, \Fname first aligns heterogeneous detector outputs to a common label space and uses held-out deployment records to assess their current predictive behavior.
-It then exactly maximizes weighted source class coverage under the budget through dynamic programming, refines the selected set without sacrificing coverage, and integrates the selected outputs with a shared stacker~\cite{wolpert1992stacked}.
+The key idea is to prioritize source class coverage over current predictive performance: \Fname first maximizes weighted source class coverage under the deployment budget and then improves current predictive behavior without reducing that coverage.
+This priority separates historical class coverage from current predictive quality: coarse source class counts indicate which attack classes were represented during training, whereas held-out deployment records indicate how well the pretrained detectors perform after distribution shifts~\cite{yang2021cade}.
+\Fname first aligns heterogeneous detector outputs to a common label space and uses held-out deployment records to assess their current predictive behavior.
+It then exactly solves the primary coverage problem through dynamic programming, refines the selected set without sacrificing coverage, and integrates the selected outputs with a shared stacker~\cite{wolpert1992stacked}.
 
-
-Additionally, we theoretically prove that calibration remains valid after adaptive detector selection and that the primary coverage problem is solved exactly.
+We further theoretically prove that calibration remains valid after adaptive detector selection and that the primary coverage problem is solved exactly.
 Because avoiding raw-data sharing alone does not eliminate privacy risks from model outputs~\cite{ico2023aiguidance}, \Fname also supports optional Laplace perturbation before score upload.
-The perturbed scores provide record-level, label-conditional local differential privacy, while this guarantee does not extend to public labels or contributed detector parameters.
+The perturbed scores satisfy record-level, label-conditional local differential privacy; this guarantee applies to the uploaded scores, not to public labels or contributed detector parameters.
 
 We evaluate \Fname on four intrusion detection datasets with over 60 candidate detectors per task.
-At a 50\% selection cost budget, \Fname maximizes weighted source class coverage while reducing total logical communication by 49.3\% to 50.4\%, demonstrating that diverse source knowledge can be retained at roughly half the communication cost.
+At a 50\% selection cost budget, \Fname maximizes weighted source class coverage while reducing total logical communication by 49.3\% to 50.4\%, demonstrating that diverse source coverage can be retained at roughly half the communication cost.
 Importantly, these savings incur only a small loss in detection quality: across all four datasets, the macro F1 gap from the full detector pool is limited to 0.028.
 Consistent with the exactness guarantee, the primary solver attains the same coverage as exhaustive search in all comparison instances.
 In summary, we make four contributions.
 
 \begin{packeditemize}
-\item We formulate budget-constrained selective integration of pretrained intrusion detectors when historical source records are unavailable and introduce an ordered objective that prioritizes source class coverage over current predictive behavior.
+\item We formulate budget-constrained selective integration of pretrained intrusion detectors when raw historical source records are unavailable and introduce an ordered objective that prioritizes source class coverage over current predictive behavior.
 
 \item We develop \Fname to align heterogeneous detectors, exactly maximize weighted source coverage under the budget, refine the selected set without reducing coverage, and integrate their outputs with a shared stacker.
 
-\item We prove selection-valid calibration, exact primary coverage optimization, and local refinement stability, and provide privacy and mixture-shift guarantees.
+\item We prove selection-valid calibration, exact primary coverage optimization, and local refinement stability, and establish label-conditional local differential privacy for randomized score uploads.
 
 \item We evaluate \Fname on four intrusion detection tasks, showing that a 50\% selection-cost budget roughly halves communication while preserving maximum source coverage and near-full-pool detection quality.
 \end{packeditemize}
@@ -1374,7 +1372,23 @@ is absent from client training.
 %
 This class contributes to macro F1 but not to minimum evaluated class recall.
 
-\input{eval/tables/datasets}
+\begin{table*}[t]
+    \centering
+    \caption{Scale of the four evaluation tasks; each task uses 66 clients and one candidate detector per client, evaluated classes count labels in the sealed test set, and DDoS includes one test class absent from client training.}
+    \label{tab:eval-datasets}
+    \small
+    \begin{tabular}{lrrrr}
+        \toprule
+        Dataset & Training samples & Test samples & Features & Evaluated classes \\
+        \midrule
+        DDoS & 3,355,966 & 1,127,526 & 79 & 13 \\
+        MalDroid & 8,118 & 3,480 & 470 & 5 \\
+        Darknet & 99,066 & 42,459 & 76 & 11 \\
+        DoH & 1,005,708 & 431,034 & 29 & 4 \\
+        \bottomrule
+    \end{tabular}
+\end{table*}
+
 
 \bheading{Protocol} We divide each training pool into disjoint 60\%, 10\%,
 and 30\% partitions for local detector training, selection validation, and
@@ -1470,7 +1484,24 @@ support.
 We first compare the methods at the central 50\% operating point and then
 inspect weak class behavior and the full budget sweep.
 
-\input{eval/tables/main}
+% \input{eval/tables/main}
+\begin{table*}[t]
+    \centering
+    \caption{Macro F1 at the 50\% selection-cost budget; random selection and individual utility ranking receive the same budget, the full detector pool is an unconstrained reference, and entries report means and 95\% Student $t$ confidence intervals over five repeated splits.}
+    \label{tab:eval-main-results}
+    \small
+    \setlength{\tabcolsep}{4.5pt}
+    \begin{tabular}{@{}lrrrr@{}}
+        \toprule
+        Method & DDoS & MalDroid & Darknet & DoH \\
+        \midrule
+        Full detector pool & $0.6412\pm0.0121$ & $0.8449\pm0.0123$ & $0.5972\pm0.0128$ & $0.6073\pm0.0042$ \\
+        Random selection & $0.6079\pm0.0287$ & $0.8344\pm0.0100$ & $0.5931\pm0.0071$ & $0.6074\pm0.0028$ \\
+        Individual utility ranking & $0.6303\pm0.0437$ & $0.8374\pm0.0132$ & $0.5921\pm0.0168$ & $0.6069\pm0.0042$ \\
+        \textbf{\Fname} & $0.6153\pm0.0453$ & $0.8397\pm0.0121$ & $0.5953\pm0.0148$ & $0.6064\pm0.0038$ \\
+        \bottomrule
+    \end{tabular}
+\end{table*}
 
 \begin{figure*}[t]
     \centering
@@ -1685,7 +1716,24 @@ result should not be generalized beyond them.
 By contrast, the learning backends produce visible score differences, as
 Table~\ref{tab:eval-architecture} shows.
 
-\input{eval/tables/architecture}
+% \input{eval/tables/architecture}
+\begin{table}[t]
+    \centering
+    \caption{Macro F1 at the 50\% selection-cost budget for each local-to-shared learner pair; entries are means over five splits, and bold marks the largest descriptive mean for each dataset.}
+    \label{tab:eval-architecture}
+    \footnotesize
+    \setlength{\tabcolsep}{2.8pt}
+    \begin{tabular}{@{}lrrrr@{}}
+        \toprule
+        Dataset & \makecell{XGB\\$\to$XGB} & \makecell{LGBM\\$\to$XGB} & \makecell{XGB\\$\to$LGBM} & \makecell{LGBM\\$\to$LGBM} \\
+        \midrule
+        DDoS & 0.617 & \textbf{0.635} & 0.633 & 0.615 \\
+        MalDroid & 0.806 & 0.833 & 0.827 & \textbf{0.840} \\
+        Darknet & 0.578 & 0.585 & 0.592 & \textbf{0.595} \\
+        DoH & 0.592 & 0.591 & \textbf{0.607} & 0.606 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
 
 \bheading{Learning backends} On DDoS, LightGBM local detectors with an XGBoost
 shared learner obtain the largest descriptive mean.
@@ -1840,7 +1888,25 @@ result.
 %
 For runtime, we include every evaluated rule and budget within one data split.
 
-\input{eval/tables/cost}
+% \input{eval/tables/cost}
+\begin{table*}[t]
+    \centering
+    \caption{Logical communication and macro-F1 loss at the 50\% selection-cost budget together with centralized replay runtime; runtime is the mean time over five splits to evaluate every selection rule and budget on one machine, rather than one selection call.}
+    \label{tab:eval-system-cost}
+    \small
+    \setlength{\tabcolsep}{4.2pt}
+    \begin{tabular}{@{}lrlrrrr@{}}
+        \toprule
+        Dataset & \makecell{Runtime (min)} & Dominant stage & \makecell{Full pool (MiB)} & \makecell{\Fname (MiB)} & \makecell{Communication saved} & \makecell{Macro F1 loss} \\
+        \midrule
+        DDoS & 50.09 & Selection (34.2\%) & 7,040.05 & 3,489.07 & 50.4\% & 0.0258 \\
+        MalDroid & 0.78 & Stacker training (74.9\%) & 662.66 & 335.94 & 49.3\% & 0.0052 \\
+        Darknet & 42.51 & Stacker training (89.1\%) & 3,436.78 & 1,732.29 & 49.6\% & 0.0019 \\
+        DoH & 8.54 & Stacker training (33.2\%) & 2,942.76 & 1,488.51 & 49.4\% & 0.0009 \\
+        \bottomrule
+    \end{tabular}
+\end{table*}
+
 
 \bheading{Communication--quality tradeoff} Across the four tasks, \Fname
 reduces total logical communication by between 49.3\% and 50.4\% while losing
