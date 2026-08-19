@@ -79,7 +79,7 @@
 
 \begin{abstract}
 Effective intrusion detection benefits from diverse attack data, yet historical source records may no longer be accessible due to privacy and retention constraints, preventing further collaborative training. 
-We therefore study selective integration of authorized pretrained detectors, aiming to choose a fixed detector set under a hard deployment budget while preserving diverse source attack-class knowledge and maintaining predictive quality on current deployment data.
+In this paper, we study selective integration of authorized pretrained detectors, aiming to choose a fixed detector set under a hard deployment budget while preserving diverse source attack-class knowledge and maintaining predictive quality on current deployment data.
 We present \Fname, which treats source coverage and current predictive behavior as ordered objectives rather than combining them into a single score.
 \Fname aligns heterogeneous detector outputs, uses held-out deployment records to assess current behavior, exactly maximizes weighted source class coverage under a logical byte budget via dynamic programming, and then refines the selected set to improve current prediction without reducing coverage.
 A shared stacker integrates the selected outputs, with optional Laplace perturbation for score uploads.
