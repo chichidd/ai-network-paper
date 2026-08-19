@@ -20,20 +20,26 @@
 \providecommand{\BIBdecl}{\relax}
 \BIBdecl
 
-\bibitem{acsc2024logging}
-\BIBentryALTinterwordspacing
-{Australian Signals Directorate's Australian Cyber Security Centre}, ``Best practices for event logging and threat detection,'' Cyber.gov.au, 2024. [Online]. Available: \url{https://www.cyber.gov.au/business-government/detecting-responding-to-threats/event-logging/best-practices-for-event-logging-and-threat-detection}
-\BIBentrySTDinterwordspacing
-
-\bibitem{microsoft2026retention}
-\BIBentryALTinterwordspacing
-{Microsoft}, ``{Microsoft Entra} data retention,'' Microsoft Learn, 2026, accessed: Aug. 10, 2026. [Online]. Available: \url{https://learn.microsoft.com/en-us/entra/identity/monitoring-health/reference-reports-data-retention}
-\BIBentrySTDinterwordspacing
+\bibitem{andresini2021insomnia}
+G.~Andresini, F.~Pendlebury, F.~Pierazzi, C.~Loglisci, A.~Appice, and L.~Cavallaro, ``Insomnia: Towards concept-drift robustness in network intrusion detection,'' in \emph{Proceedings of the 14th ACM workshop on artificial intelligence and security}, 2021, pp. 111--122.
 
 \bibitem{yang2021cade}
 \BIBentryALTinterwordspacing
 L.~Yang, W.~Guo, Q.~Hao, A.~Ciptadi, A.~Ahmadzadeh, X.~Xing, and G.~Wang, ``{CADE}: Detecting and explaining concept drift samples for security applications,'' in \emph{30th USENIX Security Symposium (USENIX Security 21)}.\hskip 1em plus 0.5em minus 0.4em\relax USENIX Association, 2021, pp. 2327--2344. [Online]. Available: \url{https://www.usenix.org/conference/usenixsecurity21/presentation/yang-limin}
 \BIBentrySTDinterwordspacing
+
+\bibitem{nist2016threatsharing}
+\BIBentryALTinterwordspacing
+C.~S. Johnson, M.~L. Badger, D.~A. Waltermire, J.~Snyder, and C.~Skorupka, ``Guide to cyber threat information sharing,'' National Institute of Standards and Technology, Tech. Rep. NIST Special Publication 800-150, 2016. [Online]. Available: \url{https://doi.org/10.6028/NIST.SP.800-150}
+\BIBentrySTDinterwordspacing
+
+\bibitem{xu2026entente}
+\BIBentryALTinterwordspacing
+J.~Xu, C.~Li, Y.~Zheng, and Z.~Li, ``{ENTENTE}: Cross-silo intrusion detection on network log graphs with federated learning,'' in \emph{Network and Distributed System Security Symposium}, 2026. [Online]. Available: \url{https://www.ndss-symposium.org/wp-content/uploads/2026-s93-paper.pdf}
+\BIBentrySTDinterwordspacing
+
+\bibitem{gdpr2018general}
+E.~GDPR, ``General data protection regulation (gdpr),'' \emph{Cit. on}, vol.~4, 2018.
 
 \bibitem{federated_learning}
 \BIBentryALTinterwordspacing
@@ -50,16 +56,53 @@ T.~Li, A.~K. Sahu, M.~Zaheer, M.~Sanjabi, A.~Talwalkar, and V.~Smith, ``Federate
 T.~Li, S.~Hu, A.~Beirami, and V.~Smith, ``Ditto: Fair and robust federated learning through personalization,'' in \emph{Proceedings of the 38th International Conference on Machine Learning}, ser. Proceedings of Machine Learning Research, vol. 139.\hskip 1em plus 0.5em minus 0.4em\relax PMLR, 2021, pp. 6357--6368. [Online]. Available: \url{https://proceedings.mlr.press/v139/li21h.html}
 \BIBentrySTDinterwordspacing
 
+\bibitem{zhao2023fedprompt}
+H.~Zhao, W.~Du, F.~Li, P.~Li, and G.~Liu, ``Fedprompt: Communication-efficient and privacy-preserving prompt tuning in federated learning,'' in \emph{ICASSP 2023-2023 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP)}.\hskip 1em plus 0.5em minus 0.4em\relax IEEE, 2023, pp. 1--5.
+
+\bibitem{old_dogs2019}
+\BIBentryALTinterwordspacing
+J.~K.-W. Lee, P.~Sattigeri, and G.~W. Wornell, ``Learning new tricks from old dogs: Multi-source transfer learning from pre-trained networks,'' in \emph{Advances in Neural Information Processing Systems}, vol.~32, 2019, pp. 4372--4382. [Online]. Available: \url{https://papers.nips.cc/paper/8688-learning-new-tricks-from-old-dogs-multi-source-transfer-learning-from-pre-trained-networks}
+\BIBentrySTDinterwordspacing
+
+\bibitem{wei2024tgr}
+\BIBentryALTinterwordspacing
+Y.~Wei, Z.~Hu, L.~Shen, Z.~Wang, Y.~Li, C.~Yuan, and D.~Tao, ``Task groupings regularization: Data-free meta-learning with heterogeneous pre-trained models,'' in \emph{Proceedings of the 41st International Conference on Machine Learning}, ser. Proceedings of Machine Learning Research, vol. 235.\hskip 1em plus 0.5em minus 0.4em\relax PMLR, 2024, pp. 52\,573--52\,587. [Online]. Available: \url{https://proceedings.mlr.press/v235/wei24e.html}
+\BIBentrySTDinterwordspacing
+
+\bibitem{dong2022zood}
+\BIBentryALTinterwordspacing
+Q.~Dong, A.~Muhammad, F.~Zhou, C.~Xie, T.~Hu, Y.~Yang, S.-H. Bae, and Z.~Li, ``{ZooD}: Exploiting model zoo for out-of-distribution generalization,'' in \emph{Advances in Neural Information Processing Systems}, vol.~35, 2022. [Online]. Available: \url{https://proceedings.neurips.cc/paper_files/paper/2022/hash/cd305fdee96836d5cc1de94577d71b61-Abstract-Conference.html}
+\BIBentrySTDinterwordspacing
+
+\bibitem{zhao2024modelglue}
+\BIBentryALTinterwordspacing
+X.~Zhao, G.~Sun, R.~Cai, Y.~Zhou, P.~Li, P.~Wang, B.~Tan, Y.~He, L.~Chen, Y.~Liang, B.~Chen, B.~Yuan, H.~Wang, A.~Li, Z.~Wang, and T.~Chen, ``{Model-GLUE}: Democratized {LLM} scaling for a large model zoo in the wild,'' in \emph{Advances in Neural Information Processing Systems}, vol.~37, 2024. [Online]. Available: \url{https://openreview.net/forum?id=M5JW7O9vc7}
+\BIBentrySTDinterwordspacing
+
+\bibitem{birman2022spirel}
+Y.~Birman, S.~Hindi, G.~Katz, and A.~Shabtai, ``Cost-effective ensemble models selection using deep reinforcement learning,'' \emph{Information Fusion}, vol.~77, pp. 133--148, 2022.
+
 \bibitem{wolpert1992stacked}
 D.~H. Wolpert, ``Stacked generalization,'' \emph{Neural Networks}, vol.~5, no.~2, pp. 241--259, 1992.
 
+\bibitem{ico2023aiguidance}
+\BIBentryALTinterwordspacing
+{Information Commissioner's Office}, ``Guidance on {AI} and data protection,'' Mar. 2023, version 2.0.17. [Online]. Available: \url{https://ico.org.uk/media/for-organisations/uk-gdpr-guidance-and-resources/artificial-intelligence/guidance-on-ai-and-data-protection-2-0.pdf}
+\BIBentrySTDinterwordspacing
+
+\bibitem{thirumuruganathan2022siraj}
+S.~Thirumuruganathan, M.~Nabeel, E.~Choo, I.~Khalil, and T.~Yu, ``{SIRAJ}: A unified framework for aggregation of malicious entity detectors,'' in \emph{43rd IEEE Symposium on Security and Privacy}.\hskip 1em plus 0.5em minus 0.4em\relax IEEE, 2022, pp. 507--521.
+
+\bibitem{qi2023privatekt}
+\BIBentryALTinterwordspacing
+T.~Qi, F.~Wu, C.~Wu, L.~He, Y.~Huang, and X.~Xie, ``Differentially private knowledge transfer for federated learning,'' \emph{Nature Communications}, vol.~14, p. 3785, 2023. [Online]. Available: \url{https://www.nature.com/articles/s41467-023-38794-x}
+\BIBentrySTDinterwordspacing
+
+\bibitem{qiu2024fedmstacking}
+W.~Qiu, Y.~Feng, Y.~Li, Y.~Chang, K.~Qian, B.~Hu, Y.~Yamamoto, and B.~W. Schuller, ``{Fed-MStacking}: Heterogeneous federated learning with stacking misaligned labels for abnormal heart sound detection,'' \emph{IEEE Journal of Biomedical and Health Informatics}, vol.~28, no.~9, pp. 5055--5066, Sep. 2024.
+
 \bibitem{pourahmadi2023fedoe}
 V.~Pourahmadi, H.~A. Alameddine, M.~A. Salahuddin, and R.~Boutaba, ``Spotting anomalies at the edge: Outlier exposure-based cross-silo federated learning for {DDoS} detection,'' \emph{IEEE Transactions on Dependable and Secure Computing}, vol.~20, no.~5, pp. 4002--4015, 2023.
-
-\bibitem{xu2026entente}
-\BIBentryALTinterwordspacing
-J.~Xu, C.~Li, Y.~Zheng, and Z.~Li, ``{ENTENTE}: Cross-silo intrusion detection on network log graphs with federated learning,'' in \emph{Network and Distributed System Security Symposium}, 2026. [Online]. Available: \url{https://www.ndss-symposium.org/wp-content/uploads/2026-s93-paper.pdf}
-\BIBentrySTDinterwordspacing
 
 \bibitem{qing2024rapier}
 \BIBentryALTinterwordspacing
@@ -74,35 +117,6 @@ R.~Xie, J.~Cao, E.~Dong, M.~Xu, K.~Sun, Q.~Li, L.~Shen, and M.~Zhang, ``Rosetta:
 \bibitem{yang2026cold}
 \BIBentryALTinterwordspacing
 S.~Yang, X.~Zheng, J.~Li, J.~Xu, and E.~C.~H. Ngai, ``{CoLD}: Collaborative label denoising framework for network intrusion detection,'' in \emph{Network and Distributed System Security Symposium}, 2026. [Online]. Available: \url{https://www.ndss-symposium.org/wp-content/uploads/2026-s1950-paper.pdf}
-\BIBentrySTDinterwordspacing
-
-\bibitem{dong2022zood}
-\BIBentryALTinterwordspacing
-Q.~Dong, A.~Muhammad, F.~Zhou, C.~Xie, T.~Hu, Y.~Yang, S.-H. Bae, and Z.~Li, ``{ZooD}: Exploiting model zoo for out-of-distribution generalization,'' in \emph{Advances in Neural Information Processing Systems}, vol.~35, 2022. [Online]. Available: \url{https://proceedings.neurips.cc/paper_files/paper/2022/hash/cd305fdee96836d5cc1de94577d71b61-Abstract-Conference.html}
-\BIBentrySTDinterwordspacing
-
-\bibitem{wei2024tgr}
-\BIBentryALTinterwordspacing
-Y.~Wei, Z.~Hu, L.~Shen, Z.~Wang, Y.~Li, C.~Yuan, and D.~Tao, ``Task groupings regularization: Data-free meta-learning with heterogeneous pre-trained models,'' in \emph{Proceedings of the 41st International Conference on Machine Learning}, ser. Proceedings of Machine Learning Research, vol. 235.\hskip 1em plus 0.5em minus 0.4em\relax PMLR, 2024, pp. 52\,573--52\,587. [Online]. Available: \url{https://proceedings.mlr.press/v235/wei24e.html}
-\BIBentrySTDinterwordspacing
-
-\bibitem{zhao2024modelglue}
-\BIBentryALTinterwordspacing
-X.~Zhao, G.~Sun, R.~Cai, Y.~Zhou, P.~Li, P.~Wang, B.~Tan, Y.~He, L.~Chen, Y.~Liang, B.~Chen, B.~Yuan, H.~Wang, A.~Li, Z.~Wang, and T.~Chen, ``{Model-GLUE}: Democratized {LLM} scaling for a large model zoo in the wild,'' in \emph{Advances in Neural Information Processing Systems}, vol.~37, 2024. [Online]. Available: \url{https://openreview.net/forum?id=M5JW7O9vc7}
-\BIBentrySTDinterwordspacing
-
-\bibitem{thirumuruganathan2022siraj}
-S.~Thirumuruganathan, M.~Nabeel, E.~Choo, I.~Khalil, and T.~Yu, ``{SIRAJ}: A unified framework for aggregation of malicious entity detectors,'' in \emph{43rd IEEE Symposium on Security and Privacy}.\hskip 1em plus 0.5em minus 0.4em\relax IEEE, 2022, pp. 507--521.
-
-\bibitem{qiu2024fedmstacking}
-W.~Qiu, Y.~Feng, Y.~Li, Y.~Chang, K.~Qian, B.~Hu, Y.~Yamamoto, and B.~W. Schuller, ``{Fed-MStacking}: Heterogeneous federated learning with stacking misaligned labels for abnormal heart sound detection,'' \emph{IEEE Journal of Biomedical and Health Informatics}, vol.~28, no.~9, pp. 5055--5066, Sep. 2024.
-
-\bibitem{birman2022spirel}
-Y.~Birman, S.~Hindi, G.~Katz, and A.~Shabtai, ``Cost-effective ensemble models selection using deep reinforcement learning,'' \emph{Information Fusion}, vol.~77, pp. 133--148, 2022.
-
-\bibitem{qi2023privatekt}
-\BIBentryALTinterwordspacing
-T.~Qi, F.~Wu, C.~Wu, L.~He, Y.~Huang, and X.~Xie, ``Differentially private knowledge transfer for federated learning,'' \emph{Nature Communications}, vol.~14, p. 3785, 2023. [Online]. Available: \url{https://www.nature.com/articles/s41467-023-38794-x}
 \BIBentrySTDinterwordspacing
 
 \bibitem{dpfedtree_ccs22}

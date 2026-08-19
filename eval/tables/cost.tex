@@ -1,12 +1,12 @@
 \begin{table*}[t]
     \centering
-    \caption{At the 50\% selection cost budget, we report total logical communication together with the time required to evaluate every selection rule and budget on one machine. We average time over five splits and use the final column for macro F1 loss relative to the full detector pool.}
+    \caption{Logical communication and macro-F1 loss at the 50\% selection-cost budget together with centralized replay runtime; runtime is the mean time over five splits to evaluate every selection rule and budget on one machine, rather than one selection call.}
     \label{tab:eval-system-cost}
     \small
     \setlength{\tabcolsep}{4.2pt}
     \begin{tabular}{@{}lrlrrrr@{}}
         \toprule
-        Dataset & \makecell{Runtime\\(min)} & Dominant stage & \makecell{Full pool\\(MiB)} & \makecell{\Fname\\(MiB)} & \makecell{Communication\\saved} & \makecell{Macro F1\\loss} \\
+        Dataset & \makecell{Runtime (min)} & Dominant stage & \makecell{Full pool (MiB)} & \makecell{\Fname (MiB)} & \makecell{Communication saved} & \makecell{Macro F1 loss} \\
         \midrule
         DDoS & 50.09 & Selection (34.2\%) & 7,040.05 & 3,489.07 & 50.4\% & 0.0258 \\
         MalDroid & 0.78 & Stacker training (74.9\%) & 662.66 & 335.94 & 49.3\% & 0.0052 \\

@@ -14,7 +14,7 @@ names = {'ddos': 'DDoS', 'maldroid': 'MalDroid', 'darknet': 'Darknet', 'doh': 'D
 lines = [
     r'\begin{table*}[t]',
     r'    \centering',
-    r'    \caption{At the 50\% selection cost budget, we report total logical communication together with the time required to evaluate every selection rule and budget on one machine. We average time over five splits and use the final column for macro F1 loss relative to the full detector pool.}',
+    r'    \caption{Logical communication and macro-F1 loss at the 50\% selection-cost budget together with centralized replay runtime; runtime is the mean time over five splits to evaluate every selection rule and budget on one machine, rather than one selection call.}',
     r'    \label{tab:eval-system-cost}',
     r'    \small',
     r'    \setlength{\tabcolsep}{4.2pt}',

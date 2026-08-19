@@ -30,7 +30,7 @@ plt.rcParams.update(
 epsilon_order = ['no_noise', '50', '20', '10', '7', '5', '3', '1']
 tick_labels = ['None', '50', '20', '10', '7', '5', '3', '1']
 policies = [
-    ('unified_selected_50', 'Selected half', '#3B6FB6', 'o'),
+    ('unified_selected_50', '50% budget', '#3B6FB6', 'o'),
     ('all_candidates', 'Full pool', '#DD8452', 's'),
 ]
 x = np.arange(len(epsilon_order))

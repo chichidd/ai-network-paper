@@ -20,7 +20,7 @@ datasets = ['ddos', 'maldroid', 'darknet', 'doh']
 lines = [
     r'\begin{table*}[t]',
     r'    \centering',
-    r'    \caption{At the 50\% selection cost budget, we compare macro F1 with two baselines that use the same budget. We use the full detector pool as the unconstrained reference and report means and 95\% confidence intervals over five repeated splits.}',
+    r'    \caption{Macro F1 at the 50\% selection-cost budget; random selection and individual utility ranking receive the same budget, the full detector pool is an unconstrained reference, and entries report means and 95\% Student $t$ confidence intervals over five repeated splits.}',
     r'    \label{tab:eval-main-results}',
     r'    \small',
     r'    \setlength{\tabcolsep}{4.5pt}',

@@ -29,7 +29,7 @@ plt.rcParams.update(
 datasets = [('ddos', 'DDoS'), ('maldroid', 'MalDroid'), ('darknet', 'Darknet'), ('doh', 'DoH')]
 methods = [
     ('unified_brcc', 'SiloStitch', '#3B6FB6', 'o'),
-    ('pointwise_utility', 'Current utility', '#DD8452', 's'),
+    ('pointwise_utility', 'Individual utility', '#DD8452', 's'),
     ('random_budget', 'Random', '#55A868', '^'),
 ]
 
