@@ -56,11 +56,6 @@ E.~GDPR, ``General data protection regulation (gdpr),'' \emph{Cit. on}, vol.~4, 
 J.~K.-W. Lee, P.~Sattigeri, and G.~W. Wornell, ``Learning new tricks from old dogs: Multi-source transfer learning from pre-trained networks,'' in \emph{Advances in Neural Information Processing Systems}, vol.~32, 2019, pp. 4372--4382. [Online]. Available: \url{https://papers.nips.cc/paper/8688-learning-new-tricks-from-old-dogs-multi-source-transfer-learning-from-pre-trained-networks}
 \BIBentrySTDinterwordspacing
 
-\bibitem{wei2024tgr}
-\BIBentryALTinterwordspacing
-Y.~Wei, Z.~Hu, L.~Shen, Z.~Wang, Y.~Li, C.~Yuan, and D.~Tao, ``Task groupings regularization: Data-free meta-learning with heterogeneous pre-trained models,'' in \emph{Proceedings of the 41st International Conference on Machine Learning}, ser. Proceedings of Machine Learning Research, vol. 235.\hskip 1em plus 0.5em minus 0.4em\relax PMLR, 2024, pp. 52\,573--52\,587. [Online]. Available: \url{https://proceedings.mlr.press/v235/wei24e.html}
-\BIBentrySTDinterwordspacing
-
 \bibitem{dong2022zood}
 \BIBentryALTinterwordspacing
 Q.~Dong, A.~Muhammad, F.~Zhou, C.~Xie, T.~Hu, Y.~Yang, S.-H. Bae, and Z.~Li, ``{ZooD}: Exploiting model zoo for out-of-distribution generalization,'' in \emph{Advances in Neural Information Processing Systems}, vol.~35, 2022. [Online]. Available: \url{https://proceedings.neurips.cc/paper_files/paper/2022/hash/cd305fdee96836d5cc1de94577d71b61-Abstract-Conference.html}
