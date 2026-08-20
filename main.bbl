@@ -49,7 +49,9 @@ J.~Xu, C.~Li, Y.~Zheng, and Z.~Li, ``{ENTENTE}: Cross-silo intrusion detection o
 \BIBentrySTDinterwordspacing
 
 \bibitem{gdpr2018general}
-E.~GDPR, ``General data protection regulation (gdpr),'' \emph{Cit. on}, vol.~4, 2018.
+\BIBentryALTinterwordspacing
+{European Parliament and Council of the European Union}, ``Regulation ({EU}) 2016/679 on the protection of natural persons with regard to the processing of personal data and on the free movement of such data,'' Official Journal of the European Union, L 119, pp. 1--88, 2016. [Online]. Available: \url{https://eur-lex.europa.eu/eli/reg/2016/679/oj}
+\BIBentrySTDinterwordspacing
 
 \bibitem{old_dogs2019}
 \BIBentryALTinterwordspacing
@@ -136,8 +138,5 @@ M.~MontazeriShatoori, L.~Davidson, G.~Kaur, and A.~H. Lashkari, ``Detection of d
 
 \bibitem{lightgbm}
 G.~Ke, Q.~Meng, T.~Finley, T.~Wang, W.~Chen, W.~Ma, Q.~Ye, and T.-Y. Liu, ``Lightgbm: A highly efficient gradient boosting decision tree,'' \emph{Advances in neural information processing systems}, vol.~30, pp. 3146--3154, 2017.
-
-\bibitem{xgboost}
-T.~Chen and C.~Guestrin, ``Xgboost: A scalable tree boosting system,'' in \emph{Proceedings of the 22nd acm sigkdd international conference on knowledge discovery and data mining}, 2016, pp. 785--794.
 
 \end{thebibliography}
