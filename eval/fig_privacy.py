@@ -65,7 +65,7 @@ for policy, label, color, marker in policies:
 axes[0].set_title('(a) Detection quality', fontsize=8)
 axes[0].set_ylabel('Macro F1')
 axes[1].set_title('(b) Attacks among benign predictions', fontsize=8)
-axes[1].set_ylabel('Attack leakage')
+axes[1].set_ylabel('Attack rate')
 axes[1].set_xticks(x, tick_labels)
 axes[1].set_xlabel('Per block ε (stronger noise →)')
 
