@@ -123,7 +123,7 @@ Because avoiding raw-data sharing alone does not eliminate privacy risks from mo
 The perturbed scores satisfy record-level, label-conditional local differential privacy; this guarantee applies to the uploaded scores, not to public labels or contributed detector parameters.
 
 We evaluate \Fname on four intrusion detection datasets with over 60 candidate detectors per task.
-At a 50\% selection cost budget, \Fname maximizes weighted source class coverage while reducing total logical communication by 49.3\% to 50.4\%, demonstrating that diverse source coverage can be retained at roughly half the communication cost.
+At a 50\% selection-cost budget, \Fname maximizes weighted source class coverage while reducing total logical communication by 49.3\% to 50.4\%, demonstrating that diverse source coverage can be retained at roughly half the communication cost.
 Importantly, these savings incur only a small loss in detection quality: across all four datasets, the macro F1 gap from the full detector pool is limited to 0.028.
 Consistent with the exactness guarantee, the primary solver attains the same coverage as exhaustive search in all comparison instances.
 In summary, we make four contributions.
@@ -188,14 +188,14 @@ FedMStacking~\cite{qiu2024fedmstacking}
 \end{table*}
 \section{Background and Related Work}
 \label{sec:related}
-We first present and review existing collaborative training and model integration methods, and then introduce the notion of differential privacy.
+We first review existing collaborative training and model integration methods, and then introduce the notion of differential privacy.
 
 \bheading{Retraining and Adaptation of Intrusion Detectors}
 When participants retain local training data and can rerun optimization, federated learning coordinates their parameter updates without transferring raw data~\cite{federated_learning,Fedprox,ditto2021}.
 Within intrusion detection, federated methods apply collaborative training across distributed network environments~\cite{pourahmadi2023fedoe,xu2026entente}.
 Recent NIDS research also redesigns the training pipeline to withstand adverse data conditions.
 For example, RAPIER handles low-quality labels for encrypted malicious traffic~\cite{qing2024rapier}, Rosetta uses TCP-aware augmentation to improve robustness across network environments~\cite{xie2023rosetta}, and CoLD denoises labels before fitting a classifier~\cite{yang2026cold}.
-These approaches improve how retained records are reused, but they still assume that participants can revisit the underlying training data after deployment.
+These approaches improve training or adaptation when the underlying records remain available to the learning procedure.
 In contrast, we consider the setting where the raw historical records are unavailable, while the pretrained detectors and coarse class-count metadata remain authorized for reuse.
 
 \bheading{Pretrained Model Integration}
@@ -230,13 +230,13 @@ We therefore specialize the local model of Duchi et
 al.~\cite{duchi2013localprivacy} to this release.
 
 {
-\begin{definition}[Label conditional local differential privacy]
+\begin{definition}[Label-conditional local differential privacy]
 \label{def:local_dp}
 For a fixed public label $y$, a contributor applies a randomized mechanism
 $\mathcal M_y$ to the feature vector $x$.
 %
 The upload
-$\mathcal R(x,y)=(\mathcal M_y(x),y)$ satisfies label conditional
+$\mathcal R(x,y)=(\mathcal M_y(x),y)$ satisfies label-conditional
 $(\epsilon,0)$-local differential privacy if, for every fixed $y$, every pair
 $x,x'$, and every measurable output set $\mathcal O$,
 \begin{equation}
@@ -251,14 +251,14 @@ feature-derived portion of the upload, and the label itself remains public.
 }
 
 To instantiate Definition~\ref{def:local_dp}, let a deterministic score map
-$s$ have replacement sensitivity
+$\psi$ have replacement sensitivity
 \begin{equation}
-\Delta_1(s)=\sup_{x,x'}\lVert s(x)-s(x')\rVert_1.
+\Delta_1(\psi)=\sup_{x,x'}\lVert \psi(x)-\psi(x')\rVert_1.
 \label{eq:local_l1_sensitivity}
 \end{equation}
 
 Adding independent noise
-$\eta_k\sim\operatorname{Lap}(0,\Delta_1(s)/\epsilon)$ to every coordinate
+$\eta_k\sim\operatorname{Lap}(0,\Delta_1(\psi)/\epsilon)$ to every coordinate
 yields a mechanism that satisfies
 Definition~\ref{def:local_dp}~\cite{dwork2006calibrating}.
 If one record releases detector score vectors with parameters
@@ -267,7 +267,7 @@ $\sum_{i=1}^{s}\epsilon_i$.
 Under one record replacement, releases derived from unchanged records do not
 increase this privacy parameter.
 In \Fname, this mechanism applies to the selected detector score vectors before they are assembled into uploaded score blocks.
-Theorem~\ref{thm:local_score_privacy} establishes label conditional local
+Theorem~\ref{thm:local_score_privacy} establishes label-conditional local
 privacy for the resulting score upload under the public label adjacency
 relation.
 
@@ -375,7 +375,6 @@ These goals can favor different candidates.
 For example, one detector may be the only affordable model that covers a rare source class but have only moderate deployment-domain performance, while another may exhibit strong deployment-domain performance but add no new source-class coverage.
 
 We handle this conflict with a strict priority: weighted source class coverage is maximized first under the selection-cost budget, and deployment-domain predictive behavior is compared only after that maximum is fixed.
-Only after that maximum coverage value has been fixed do we compare deployment-domain predictive behavior.
 This is a lexicographic objective: the secondary objective can improve the choice among equally well-covered sets, but it can never compensate for losing primary coverage.
 We express this priority as
 \begin{equation}
@@ -411,7 +410,7 @@ The following subsections define the operations in these four steps in detail.
 
 \begin{figure*}[t]
     \centering
-    \includegraphics[width=\linewidth]{figures/post-training-federation-overview-v29-gpt-image.png}
+    \includegraphics[width=\linewidth]{figures/nids.pdf}
     \caption{Overview of \Fname.
     Step~1 maps the heterogeneous outputs of the pretrained detector pool to a common $C+1$-coordinate label space and retains the metadata needed for selection.
     Step~2 evaluates the aligned detectors on held-out calibration records and forms the calibration-eligible pool.
@@ -439,7 +438,7 @@ If score protection is enabled, they randomize the selected aligned score blocks
 \begin{algorithmic}[1]
 \Require $\{f_i,A_i,H_i,K_i\}_{i=1}^{M}$, $\mathcal D^{\rm cal}$,
 $\{\mathcal D_j^{\rm stk}\}_{j=1}^{J}$, $B$, $\epsilon_b\in(0,\infty]$
-\Ensure $\widehat S$, $\widehat f$
+\Ensure $\widehat S$, $\widehat f_{\widehat S}$
 \State Construct $(\Gamma,w,b)$ from the fixed source metadata and cost model
 \State Evaluate candidates on $\mathcal D^{\rm cal}$ to obtain $\widehat{\mathcal R}$ and the statistics used by $\Phi$
 \State Construct $\Phi$ from the retained calibration statistics
@@ -457,8 +456,8 @@ $\{\mathcal D_j^{\rm stk}\}_{j=1}^{J}$, $B$, $\epsilon_b\in(0,\infty]$
     \EndIf
     \State Contributor $j\to$ Coordinator: $(\widetilde Z_j,Y_j^{\rm stk})$
 \EndFor
-\State $\widehat f\gets\Call{Fit}{\bigcup_j(\widetilde Z_j,Y_j^{\rm stk})}$
-\State \Return $(\widehat S,\widehat f)$
+\State $\widehat f_{\widehat S}\gets\Call{Fit}{\bigcup_j(\widetilde Z_j,Y_j^{\rm stk})}$
+\State \Return $(\widehat S,\widehat f_{\widehat S})$
 \end{algorithmic}
 \end{algorithm}
 
@@ -562,7 +561,7 @@ We assume $\mathcal C_+\ne\varnothing$ and set
 w_c=
 \begin{cases}
 \displaystyle
-\frac{H_c^{-1/2}}{\sum_{d\in\mathcal C_+}H_d^{-1/2}},
+\frac{H_c^{-1/2}}{\sum_{c'\in\mathcal C_+}H_{c'}^{-1/2}},
 & c\in\mathcal C_+,\\[2mm]
 0, & c\notin\mathcal C_+,
 \end{cases}
@@ -570,7 +569,7 @@ w_c=
 \sum_{c=1}^{C}w_c=1.
 \label{eq:semantic_weights}
 \end{equation}
-The inverse-square-root rule increases the importance of less represented source-supported classes without letting one extremely rare class dominate the whole objective solely because its raw count is small.
+The inverse-square-root rule gives greater weight to less represented source-supported classes while moderating frequency differences relative to inverse-frequency weighting.
 
 For selected set $S$, we define weighted source class coverage as
 \begin{equation}
@@ -645,7 +644,7 @@ Every accepted refinement therefore improves deployment-domain predictive behavi
 \subsection{Shared Stacker Learning}
 
 Once selection fixes $\widehat S$, only the aligned outputs of the selected detectors enter the shared stacker.
-We use one fixed canonical order for the selected detectors and reuse it for stacker fitting and inference.
+We use the same fixed detector order for stacker fitting and inference.
 For input $x$, we define the selected representation
 \begin{equation}
 \phi_{\widehat S}(x)=
@@ -653,7 +652,7 @@ For input $x$, we define the selected representation
 \in\mathbb R^{|\widehat S|(C+1)}.
 \label{eq:selected_representation}
 \end{equation}
-The selected detector set therefore fixes which score blocks are used, while the canonical order fixes their feature-column positions before the stacker is fitted.
+The selected detector set determines which score blocks are used, while this fixed order determines their feature-column positions.
 
 \bheading{Local score perturbation}
 Although raw historical source records are unavailable, the scores computed from stacker-fitting records may still reveal information about those records.
@@ -1151,7 +1150,7 @@ MalDroid improves most clearly as the budget increases, DoH changes only slightl
 We next examine whether the communication savings degrade weakest class performance.
 Relative to the full pool, the 50\% selected set changes accuracy by at most 0.0046 and minimum evaluated class recall by at most 0.0061 on MalDroid, Darknet, and DoH.
 On DDoS, the accuracy gap is 0.0296 but the minimum evaluated class-recall gap is only 0.0094.
-Darknet illustrates that this weakness is already present in the candidate pool: even the full pool reaches only 0.0077 minimum evaluated class recall, compared with 0.0058 after selection.
+Darknet remains weak even under the full-pool reference, which reaches 0.0077 minimum evaluated class recall compared with 0.0058 after selection.
 Most importantly for our primary objective, \Fname reaches the maximum weighted source class coverage available under the 50\% budget on all four datasets.
 
 \bheading{Why coverage priority matters}
@@ -1187,7 +1186,7 @@ Darknet remains feasible for all ten seeds at every evaluated heterogeneity leve
 MalDroid behaves differently because it has only five source classes spread across the same 66 contributors.
 All ten IID and all ten $\alpha=10$ partitions are usable, but only five $\alpha=1$ partitions satisfy the two-class requirement.
 At $\alpha=0.5$ and $0.1$, none of the ten fixed seeds produces a valid partition despite allowing up to 100 generation attempts per seed.
-For these extreme settings, the constraint arises before selective integration begins: the source partitions cannot produce the required multiclass candidate pool.
+For these extreme settings, the difficulty arises before selective integration: under the evaluated generation procedure, no valid multiclass candidate pool was obtained.
 
 \bheading{Quality after a valid pool exists}
 Conditional on a usable candidate pool, stronger heterogeneity does not produce a monotonic decline in macro F1.
@@ -1354,7 +1353,7 @@ The dynamic program solves the primary coverage problem exactly whenever the ful
 The reported savings are modeled logical bytes rather than measurements of network latency or protocol overhead.
 The centralized replay nevertheless lets us separate the computational stages under identical data splits.
 At 66 candidates, primary selection finishes in seconds, but runtime grows quickly with the target class count because the bitmask state space depends on $2^C$.
-The solver is therefore most suitable when the number of target classes remains moderate; larger ontologies would require a different primary solver or an approximation that explicitly relaxes exactness.
+The solver is therefore most suitable when the number of target classes remains moderate; larger ontologies may require a different primary solver or an approximation that explicitly relaxes exactness.
 
 \noindent\textbf{Privacy scope and utility tradeoff.}
 Our local privacy guarantee applies to randomized selected score uploads and introduces a measurable utility cost. The DDoS experiment shows why we examine this cost at more than one level: under strong perturbation, macro F1 degrades, while the attack rate among benign predictions shows that more than half of benign-labeled predictions are attacks.
