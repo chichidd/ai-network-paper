@@ -61,8 +61,8 @@ axes[1].errorbar(
     linewidth=1.25,
     capsize=2,
 )
-axes[1].set_title('(b) More attack classes', fontsize=8.5)
-axes[1].set_xlabel('Attack classes')
+axes[1].set_title('(b) More target classes', fontsize=8.5)
+axes[1].set_xlabel('Target classes')
 axes[1].set_xticks(class_x)
 
 for axis in axes:

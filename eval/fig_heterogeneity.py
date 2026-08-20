@@ -60,7 +60,7 @@ for dataset, label, color in datasets:
         label=label,
     )
 axes[1].set_title('(b) Label imbalance', fontsize=8)
-axes[1].set_ylabel('Client label JSD')
+axes[1].set_ylabel('Contributor label JSD')
 
 darknet = [next(row for row in rows if row['dataset'] == 'darknet' and row['partition'] == partition) for partition in partitions]
 axes[2].errorbar(
